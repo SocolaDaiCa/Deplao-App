@@ -35,10 +35,10 @@
     },
     "files": [
       "main.js",
-      "preload.js",
+      "apps-registry.js",
+      "apps/**/*",
       "renderer.js",
       "index.html",
-      "custom_style.css",
       "icon.ico",
       "icon.png",
       "package.json"

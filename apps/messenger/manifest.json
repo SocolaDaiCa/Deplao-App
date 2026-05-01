@@ -1,0 +1,14 @@
+{
+  "id": "messenger",
+  "name": "Messenger",
+  "startUrl": "https://www.facebook.com/messages",
+  "order": 10,
+  "trustedDomains": [
+    "facebook.com",
+    "messenger.com",
+    "fbcdn.net",
+    "fb.com",
+    "fbsbx.com"
+  ],
+  "customCss": "style.css"
+}

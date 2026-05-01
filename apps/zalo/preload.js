@@ -1,3 +1,5 @@
+'use strict';
+
 const { contextBridge, ipcRenderer, webFrame } = require('electron');
 
 contextBridge.exposeInMainWorld('messengerApp', {
@@ -11,22 +13,18 @@ contextBridge.exposeInMainWorld('messengerApp', {
   getSettings: () => ipcRenderer.sendSync('get-settings'),
 });
 
-// Lấy cài đặt từ main process
 const settings = ipcRenderer.sendSync('get-settings');
 
-// Inject script vào trang web (Zalo) để chặn các API báo đã xem / đang nhập
 const injectionScript = `
   window.__DepLaoBlockSeen = ${settings.blockSeen || false};
   window.__DepLaoBlockTyping = ${settings.blockTyping || false};
 
   (function() {
-    // Chỉ kích hoạt bộ chặn nếu đang ở trang Zalo
     if (!window.location.hostname.includes('zalo.me') && !window.location.hostname.includes('zadn.vn')) {
       console.log("[DepLao] Không phải trang Zalo. Tắt bộ chặn.");
       return;
     }
 
-    // 1. Chặn Fetch API
     const originalFetch = window.fetch;
     window.fetch = async function(...args) {
       const url = typeof args[0] === 'string' ? args[0] : (args[0] && args[0].url ? args[0].url : '');
@@ -39,7 +37,6 @@ const injectionScript = `
       return originalFetch.apply(this, args);
     };
 
-    // 2. Chặn XMLHttpRequest (XHR)
     const originalXHR = window.XMLHttpRequest;
     window.XMLHttpRequest = function() {
       const xhr = new originalXHR();
@@ -71,7 +68,6 @@ const injectionScript = `
       return xhr;
     };
 
-    // 3. Chặn WebSocket
     const originalWebSocket = window.WebSocket;
     window.WebSocket = function(url, protocols) {
       const ws = new originalWebSocket(url, protocols);
@@ -90,7 +86,7 @@ const injectionScript = `
         } catch (e) {
           console.error('DepLao WS Intercept Error:', e);
         }
-        
+
         if (shouldDrop) {
           console.log("[DepLao] Đã chặn packet WebSocket gửi trạng thái:", data);
           return;
@@ -99,7 +95,7 @@ const injectionScript = `
       };
       return ws;
     };
-    
+
     console.log("[DepLao] Đã khởi tạo bộ chặn Zalo. Block Seen:", window.__DepLaoBlockSeen, ", Block Typing:", window.__DepLaoBlockTyping);
   })();
 `;
@@ -113,4 +109,3 @@ ipcRenderer.on('update-block-settings', (event, newSettings) => {
     console.log("[DepLao] Đã cập nhật cài đặt chặn. Block Seen:", window.__DepLaoBlockSeen, ", Block Typing:", window.__DepLaoBlockTyping);
   `);
 });
-

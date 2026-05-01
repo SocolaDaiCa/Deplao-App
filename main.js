@@ -22,11 +22,23 @@ const {
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
+const {
+  loadRegistry,
+  listServicesSorted,
+  getManifest,
+  resolvePreloadPath,
+  mergeTrustedDomains,
+  urlMatchesTrusted,
+  getStartUrl,
+  getUserAgentForService,
+} = require('./apps-registry');
 
 // ============================================================
 //  CẤU HÌNH CHUNG
 // ============================================================
-const ZALO_URL = 'https://chat.zalo.me';
+const serviceRegistry = loadRegistry();
+const ALL_TRUSTED_DOMAIN_MARKERS = mergeTrustedDomains(serviceRegistry);
+const DEFAULT_SERVICE_FALLBACK_URL = 'https://chat.zalo.me';
 const APP_ID = 'com.zalo.desktop';
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
@@ -114,7 +126,7 @@ function createBadgeIcon(count) {
 //  TẠO SYSTEM TRAY
 // ============================================================
 function createTray() {
-  const iconPath = '/Users/tiodev/Downloads/Zalo/icon.png';
+  const iconPath = path.join(__dirname, 'icon.png');
   let trayIcon;
   try {
     trayIcon = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 });
@@ -282,9 +294,10 @@ function updateBrowserViewBounds() {
   });
 }
 
-function setupWebContents(contents, profileId) {
+function setupWebContents(contents, profile) {
+  const profileId = profile.id;
   contents.setWindowOpenHandler(({ url }) => {
-    if (url.includes('facebook.com') || url.includes('messenger.com') || url.includes('fbcdn.net') || url.includes('zalo.me') || url.includes('microsoft.com') || url.includes('live.com') || url.includes('office.com') || url.includes('skype.com') || url.includes('microsoftonline.com')) {
+    if (urlMatchesTrusted(url, ALL_TRUSTED_DOMAIN_MARKERS)) {
       return { action: 'allow' };
     }
     shell.openExternal(url);
@@ -321,11 +334,15 @@ function setupWebContents(contents, profileId) {
   });
 
   contents.on('did-finish-load', async () => {
-    const cssPath = path.join(__dirname, 'custom_style.css');
-    try {
-      const cssData = fs.readFileSync(cssPath, 'utf8');
-      contents.insertCSS(cssData);
-    } catch (e) { }
+    const platform = profile.platform || 'zalo';
+    const manifest = getManifest(serviceRegistry, platform);
+    const cssPath = manifest?.customCss;
+    if (cssPath && fs.existsSync(cssPath)) {
+      try {
+        const cssData = fs.readFileSync(cssPath, 'utf8');
+        contents.insertCSS(cssData);
+      } catch (e) { }
+    }
   });
 
   const avatarInterval = setInterval(async () => {
@@ -398,7 +415,7 @@ function createWindow() {
     minWidth: 400,
     minHeight: 300,
     title: 'Zalo',
-    icon: '/Users/tiodev/Downloads/Zalo/icon.png',
+    icon: path.join(__dirname, 'icon.png'),
     backgroundColor: settings.isDarkMode ? '#242526' : '#ffffff',
     show: !settings.startMinimized,
     autoHideMenuBar: true,
@@ -436,7 +453,7 @@ function createWindow() {
 
     sess.setPermissionRequestHandler((webContents, permission, callback) => {
       const url = webContents.getURL();
-      const isAllowed = url.includes('facebook.com') || url.includes('messenger.com') || url.includes('fbcdn.net') || url.includes('zalo.me') || url.includes('microsoft.com') || url.includes('live.com') || url.includes('office.com') || url.includes('skype.com') || url.includes('microsoftonline.com');
+      const isAllowed = urlMatchesTrusted(url, ALL_TRUSTED_DOMAIN_MARKERS);
       if (isAllowed) {
         const allowedPermissions = [
           'notifications', 'media', 'mediaKeySystem', 'microphone',
@@ -452,10 +469,7 @@ function createWindow() {
 
     sess.setPermissionCheckHandler((webContents, permission) => {
       const url = webContents?.getURL() || '';
-      if (url.includes('facebook.com') || url.includes('messenger.com') || url.includes('zalo.me') || url.includes('microsoft.com') || url.includes('live.com') || url.includes('office.com') || url.includes('skype.com') || url.includes('microsoftonline.com')) {
-        return true;
-      }
-      return false;
+      return urlMatchesTrusted(url, ALL_TRUSTED_DOMAIN_MARKERS);
     });
   });
 
@@ -491,19 +505,32 @@ function createWindow() {
   });
 
   // IPC
+  ipcMain.handle('get-services-ui', () => {
+    return listServicesSorted(serviceRegistry).map((m) => ({
+      id: m.id,
+      name: m.name,
+      order: m.order,
+      iconPath: m._iconPath,
+    }));
+  });
+
   ipcMain.on('switch-profile', (event, profile) => {
     activeProfileId = profile.id;
+    const platform = profile.platform || 'zalo';
+    const manifest = getManifest(serviceRegistry, platform);
+    const preloadPath = resolvePreloadPath(manifest);
+
     if (!browserViews[profile.id]) {
       const view = new BrowserView({
         webPreferences: {
           partition: profile.partition,
-          preload: path.join(__dirname, 'preload.js'),
+          preload: preloadPath,
           contextIsolation: true,
           nodeIntegration: false,
         }
       });
       browserViews[profile.id] = view;
-      setupWebContents(view.webContents, profile.id);
+      setupWebContents(view.webContents, profile);
 
       // Cài đặt proxy
       const sess = session.fromPartition(profile.partition);
@@ -514,8 +541,9 @@ function createWindow() {
         sess.setProxy({ proxyRules: 'direct://' });
       }
 
-      const url = profile.platform === 'teams' ? 'https://teams.microsoft.com/' : ZALO_URL;
-      view.webContents.loadURL(url, { userAgent: USER_AGENT });
+      const startUrl = getStartUrl(serviceRegistry, platform, DEFAULT_SERVICE_FALLBACK_URL);
+      const ua = getUserAgentForService(USER_AGENT, manifest);
+      view.webContents.loadURL(startUrl, { userAgent: ua });
     }
     mainWindow.setBrowserView(browserViews[profile.id]);
     updateBrowserViewBounds();

@@ -1,8 +1,26 @@
 const { ipcRenderer } = require('electron');
-const path = require('path');
-const fs = require('fs');
 
 const profilesList = document.getElementById('profiles-list');
+
+let servicesUi = [];
+const serviceById = {};
+
+async function loadServicesUi() {
+  const list = await ipcRenderer.invoke('get-services-ui');
+  servicesUi = Array.isArray(list) ? list : [];
+  Object.keys(serviceById).forEach((k) => delete serviceById[k]);
+  for (const s of servicesUi) serviceById[s.id] = s;
+  const sel = document.getElementById('profile-platform-input');
+  if (sel) {
+    sel.innerHTML = '';
+    for (const s of servicesUi) {
+      const opt = document.createElement('option');
+      opt.value = s.id;
+      opt.textContent = s.name;
+      sel.appendChild(opt);
+    }
+  }
+}
 
 // Load profiles
 let profiles = [];
@@ -11,8 +29,12 @@ try {
   if (saved) profiles = JSON.parse(saved);
 } catch(e) {}
 
+for (const p of profiles) {
+  if (!p.platform) p.platform = 'zalo';
+}
+
 if (profiles.length === 0) {
-  profiles = [{ id: Date.now().toString(), name: 'Nick 1', partition: 'persist:nick_1' }];
+  profiles = [{ id: Date.now().toString(), name: 'Nick 1', partition: 'persist:nick_1', platform: 'zalo' }];
   saveProfiles();
 }
 
@@ -31,11 +53,20 @@ function renderSidebar() {
     
     const span = document.createElement('span');
     span.innerText = p.name.charAt(0).toUpperCase();
-    
-    // Add avatar image if exists
+
+    const svc = serviceById[p.platform || 'zalo'];
+    const defaultIcon = svc && svc.iconPath ? svc.iconPath : null;
+
     if (p.avatar) {
       const img = document.createElement('img');
       img.src = p.avatar.startsWith('http') ? p.avatar : `file://${p.avatar.replace(/\\/g, '/')}`;
+      img.style.width = '100%'; img.style.height = '100%'; img.style.borderRadius = '50%';
+      img.style.objectFit = 'cover'; img.style.position = 'absolute'; img.style.top = '0'; img.style.left = '0';
+      btn.appendChild(img);
+      span.style.display = 'none';
+    } else if (defaultIcon) {
+      const img = document.createElement('img');
+      img.src = `file://${defaultIcon.replace(/\\/g, '/')}`;
       img.style.width = '100%'; img.style.height = '100%'; img.style.borderRadius = '50%';
       img.style.objectFit = 'cover'; img.style.position = 'absolute'; img.style.top = '0'; img.style.left = '0';
       btn.appendChild(img);
@@ -53,7 +84,7 @@ function renderSidebar() {
     btn.onclick = () => switchProfile(p.id);
     
     btn.oncontextmenu = () => {
-      openModal(p);
+      void openModal(p);
     };
     
     profilesList.appendChild(btn);
@@ -82,20 +113,34 @@ const avatarImg = document.getElementById('avatar-img');
 const avatarLetter = document.getElementById('avatar-letter');
 const avatarInput = document.getElementById('avatar-input');
 
-function openModal(profileToEdit = null) {
+async function openModal(profileToEdit = null) {
+  await loadServicesUi();
   ipcRenderer.send('set-browserview-visibility', false);
   editingProfile = profileToEdit;
   tempAvatarPath = profileToEdit ? profileToEdit.avatar : null;
-  
+
   modalTitle.innerText = profileToEdit ? 'Chỉnh sửa tài khoản' : 'Thêm tài khoản';
   nameInput.value = profileToEdit ? profileToEdit.name : '';
   proxyInput.value = profileToEdit && profileToEdit.proxy ? profileToEdit.proxy : '';
-  platformInput.value = profileToEdit && profileToEdit.platform ? profileToEdit.platform : 'zalo';
+  const defaultPlatform = (servicesUi[0] && servicesUi[0].id) || 'zalo';
+  platformInput.value = profileToEdit && profileToEdit.platform ? profileToEdit.platform : defaultPlatform;
+  if (![...platformInput.options].some((o) => o.value === platformInput.value)) {
+    platformInput.value = defaultPlatform;
+  }
   document.getElementById('modal-delete').style.display = profileToEdit ? 'block' : 'none';
-  
+
   updateAvatarPreview();
   modalOverlay.style.display = 'flex';
   nameInput.focus();
+}
+
+function resolvedPlatformForSave() {
+  let platform = platformInput.value;
+  if (!platform && platformInput.options && platformInput.options.length > 0) {
+    platform = platformInput.options[0].value;
+  }
+  if (!platform) platform = (servicesUi[0] && servicesUi[0].id) || 'zalo';
+  return platform;
 }
 
 function updateAvatarPreview() {
@@ -153,12 +198,12 @@ document.getElementById('modal-save').onclick = () => {
   if (editingProfile) {
     editingProfile.name = name;
     editingProfile.avatar = tempAvatarPath;
-    editingProfile.platform = platformInput.value;
+    editingProfile.platform = resolvedPlatformForSave();
     editingProfile.proxy = proxyInput.value.trim();
     ipcRenderer.send('update-profile-settings', editingProfile);
   } else {
     const id = Date.now().toString();
-    const p = { id, name, avatar: tempAvatarPath, partition: `persist:nick_${id}`, platform: platformInput.value, proxy: proxyInput.value.trim() };
+    const p = { id, name, avatar: tempAvatarPath, partition: `persist:nick_${id}`, platform: resolvedPlatformForSave(), proxy: proxyInput.value.trim() };
     profiles.push(p);
     activeProfileId = id;
   }
@@ -170,7 +215,7 @@ document.getElementById('modal-save').onclick = () => {
   if (!editingProfile) switchProfile(activeProfileId);
 };
 
-document.getElementById('btn-add-profile').onclick = () => openModal();
+document.getElementById('btn-add-profile').onclick = () => void openModal();
 
 // Toolbar
 let isDarkMode = true;
@@ -224,5 +269,7 @@ if(settings.alwaysOnTop) {
   document.getElementById('btn-pin').style.opacity = '1';
 }
 
-renderSidebar();
-switchProfile(activeProfileId);
+loadServicesUi().then(() => {
+  renderSidebar();
+  switchProfile(activeProfileId);
+});

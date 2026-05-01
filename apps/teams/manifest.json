@@ -1,0 +1,14 @@
+{
+  "id": "teams",
+  "name": "Microsoft Teams",
+  "startUrl": "https://teams.microsoft.com/",
+  "order": 30,
+  "trustedDomains": [
+    "microsoft.com",
+    "live.com",
+    "office.com",
+    "skype.com",
+    "microsoftonline.com",
+    "teams.microsoft.com"
+  ]
+}
