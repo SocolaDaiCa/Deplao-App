@@ -6,10 +6,6 @@ const path = require('path');
 const APPS_ROOT = path.join(__dirname, 'apps');
 const SHARED_PRELOAD = path.join(APPS_ROOT, '_shared', 'preload-default.js');
 
-/**
- * Mỗi dịch vụ một thư mục con của apps/ (bỏ qua thư mục bắt đầu bằng _).
- * manifest.json: id, name, startUrl, trustedDomains[], customCss?, preload?, userAgent?, order?, icon?
- */
 function normalizeManifest(dirName, dir, raw) {
   const id = raw.id || dirName;
   const preloadBasename = raw.preload != null ? raw.preload : 'preload.js';
@@ -42,12 +38,12 @@ function loadRegistry() {
       const raw = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
       const m = normalizeManifest(ent.name, dir, raw);
       if (!m.startUrl) {
-        console.warn(`[DepLao] Bỏ qua ${manifestPath}: thiếu startUrl`);
+        console.warn(`[DepLao] Skip ${manifestPath}: missing startUrl`);
         continue;
       }
       manifests[m.id] = m;
     } catch (e) {
-      console.error('[DepLao] Lỗi đọc manifest:', manifestPath, e);
+      console.error('[DepLao] Manifest error:', manifestPath, e);
     }
   }
   return manifests;
@@ -66,21 +62,9 @@ function resolvePreloadPath(manifest) {
   const custom = path.join(manifest.dir, manifest.preloadBasename);
   if (fs.existsSync(custom)) return custom;
   if (!fs.existsSync(SHARED_PRELOAD)) {
-    throw new Error(`Thiếu preload mặc định: ${SHARED_PRELOAD}`);
+    throw new Error(`Missing default preload: ${SHARED_PRELOAD}`);
   }
   return SHARED_PRELOAD;
-}
-
-function mergeTrustedDomains(registry) {
-  const set = new Set();
-  for (const m of Object.values(registry)) {
-    for (const d of m.trustedDomains) set.add(d);
-  }
-  return [...set];
-}
-
-function urlMatchesTrusted(url, trustedSubstrings) {
-  return trustedSubstrings.some((s) => url.includes(s));
 }
 
 function getStartUrl(registry, serviceId, fallbackUrl) {
@@ -99,8 +83,6 @@ module.exports = {
   listServicesSorted,
   getManifest,
   resolvePreloadPath,
-  mergeTrustedDomains,
-  urlMatchesTrusted,
   getStartUrl,
   getUserAgentForService,
 };

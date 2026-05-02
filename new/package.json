@@ -1,0 +1,12 @@
+{
+  "name": "deplao-app",
+  "version": "1.0.0",
+  "description": "DepLao — Franz-style desktop wrapper (session riêng / partition)",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^34.0.0"
+  }
+}

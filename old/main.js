@@ -1,7 +1,5 @@
 // ============================================================
-//  Ứng dụng Zalo Desktop
-//  Nhân: Chromium (Google Chrome)
-//  Tác giả: Nguyễn Đình Thọ
+//  DepLao — Messenger Desktop (Electron / Chromium)
 // ============================================================
 
 const {
@@ -9,7 +7,6 @@ const {
   BrowserWindow,
   BrowserView,
   shell,
-  session,
   Menu,
   MenuItem,
   Tray,
@@ -24,11 +21,8 @@ const path = require('path');
 const fs = require('fs');
 const {
   loadRegistry,
-  listServicesSorted,
   getManifest,
   resolvePreloadPath,
-  mergeTrustedDomains,
-  urlMatchesTrusted,
   getStartUrl,
   getUserAgentForService,
 } = require('./apps-registry');
@@ -37,11 +31,11 @@ const {
 //  CẤU HÌNH CHUNG
 // ============================================================
 const serviceRegistry = loadRegistry();
-const ALL_TRUSTED_DOMAIN_MARKERS = mergeTrustedDomains(serviceRegistry);
-const DEFAULT_SERVICE_FALLBACK_URL = 'https://chat.zalo.me';
-const APP_ID = 'com.zalo.desktop';
-const USER_AGENT =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
+const DEFAULT_SERVICE_FALLBACK_URL = 'https://www.facebook.com/messages';
+const APP_ID = 'com.deplao.messenger';
+// Khớp phiên bản Chrome với Chromium của Electron — UA giả lệch (vd. Chrome/125 khi nhân là 122)
+// thường khiến Facebook/Messenger checkpoint hoặc đồng bộ tin nhắn chậm/lỗi.
+const USER_AGENT = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${process.versions.chrome} Safari/537.36`;
 
 // ============================================================
 //  CHỐNG CHẠY TRÙNG LẶP (Single Instance Lock)
@@ -69,8 +63,6 @@ const DEFAULT_SETTINGS = {
   currentTheme: 'default',
   isDarkMode: true,
   alwaysOnTop: false,
-  blockSeen: false,
-  blockTyping: false,
 };
 
 function loadSettings() {
@@ -135,7 +127,7 @@ function createTray() {
   }
   tray = new Tray(trayIcon);
   updateTrayMenu();
-  tray.setToolTip('Zalo');
+  tray.setToolTip('Messenger');
 
   tray.on('click', () => {
     if (!mainWindow) return;
@@ -157,7 +149,7 @@ function createTray() {
 function updateTrayMenu() {
   if (!tray) return;
   const contextMenu = Menu.buildFromTemplate([
-    { label: '💬 Mở Zalo', click: () => { mainWindow.show(); mainWindow.focus(); } },
+    { label: '💬 Mở Messenger', click: () => { mainWindow.show(); mainWindow.focus(); } },
     { type: 'separator' },
     {
       label: '🔄 Tải lại trang', click: () => {
@@ -169,39 +161,11 @@ function updateTrayMenu() {
     { label: '🚀 Khởi động cùng Windows', type: 'checkbox', checked: settings.autoLaunch, click: (item) => toggleAutoLaunch(item.checked) },
     { label: '📌 Thu nhỏ xuống Tray khi đóng', type: 'checkbox', checked: settings.minimizeToTray, click: (item) => { settings.minimizeToTray = item.checked; saveSettings(settings); } },
     { type: 'separator' },
-    {
-      label: '🛡️ Bảo mật', submenu: [
-        { label: 'Chặn hiển thị "Đã xem"', type: 'checkbox', checked: settings.blockSeen, click: (item) => toggleBlockSeen(item.checked) },
-        { label: 'Chặn hiển thị "Đang nhập"', type: 'checkbox', checked: settings.blockTyping, click: (item) => toggleBlockTyping(item.checked) }
-      ]
-    },
-    { type: 'separator' },
     { label: '⬇️ Kiểm tra cập nhật', click: () => checkForUpdates(true) },
     { type: 'separator' },
     { label: '❌ Thoát hoàn toàn', click: () => { isQuitting = true; app.quit(); } },
   ]);
   tray.setContextMenu(contextMenu);
-}
-
-function broadcastBlockSettings() {
-  const newSettings = { blockSeen: settings.blockSeen, blockTyping: settings.blockTyping };
-  for (const id in browserViews) {
-    if (browserViews[id] && browserViews[id].webContents) {
-      browserViews[id].webContents.send('update-block-settings', newSettings);
-    }
-  }
-}
-
-function toggleBlockSeen(enable) {
-  settings.blockSeen = enable;
-  saveSettings(settings);
-  broadcastBlockSettings();
-}
-
-function toggleBlockTyping(enable) {
-  settings.blockTyping = enable;
-  saveSettings(settings);
-  broadcastBlockSettings();
 }
 
 // ============================================================
@@ -296,13 +260,7 @@ function updateBrowserViewBounds() {
 
 function setupWebContents(contents, profile) {
   const profileId = profile.id;
-  contents.setWindowOpenHandler(({ url }) => {
-    if (urlMatchesTrusted(url, ALL_TRUSTED_DOMAIN_MARKERS)) {
-      return { action: 'allow' };
-    }
-    shell.openExternal(url);
-    return { action: 'deny' };
-  });
+  contents.setWindowOpenHandler(() => ({ action: 'allow' }));
 
   contents.on('context-menu', (event, params) => {
     const menu = new Menu();
@@ -333,17 +291,17 @@ function setupWebContents(contents, profile) {
     if (menu.items.length > 0) menu.popup({ window: mainWindow });
   });
 
-  contents.on('did-finish-load', async () => {
-    const platform = profile.platform || 'zalo';
-    const manifest = getManifest(serviceRegistry, platform);
-    const cssPath = manifest?.customCss;
-    if (cssPath && fs.existsSync(cssPath)) {
-      try {
-        const cssData = fs.readFileSync(cssPath, 'utf8');
-        contents.insertCSS(cssData);
-      } catch (e) { }
-    }
-  });
+  // contents.on('did-finish-load', async () => {
+  //   const platform = profile.platform || 'messenger';
+  //   const manifest = getManifest(serviceRegistry, platform);
+  //   const cssPath = manifest?.customCss;
+  //   if (cssPath && fs.existsSync(cssPath)) {
+  //     try {
+  //       const cssData = fs.readFileSync(cssPath, 'utf8');
+  //       contents.insertCSS(cssData);
+  //     } catch (e) { }
+  //   }
+  // });
 
   const avatarInterval = setInterval(async () => {
     if (contents.isDestroyed()) {
@@ -414,7 +372,7 @@ function createWindow() {
     y: windowBounds.y,
     minWidth: 400,
     minHeight: 300,
-    title: 'Zalo',
+    title: 'Messenger',
     icon: path.join(__dirname, 'icon.png'),
     backgroundColor: settings.isDarkMode ? '#242526' : '#ffffff',
     show: !settings.startMinimized,
@@ -425,52 +383,6 @@ function createWindow() {
       contextIsolation: false,
       spellcheck: false,
     },
-  });
-
-  app.on('session-created', (sess) => {
-    // Chặn Request ở cấp độ mạng (Network Level) cho Zalo API
-    sess.webRequest.onBeforeRequest({ urls: ['*://*.zalo.me/*', '*://*.zadn.vn/*'] }, (details, callback) => {
-      let cancel = false;
-
-      // Chặn Đã xem (Block Seen)
-      if (settings.blockSeen) {
-        if (details.url.includes('/api/message/read') || details.url.includes('/api/message/seen') || details.url.includes('read_status')) {
-          cancel = true;
-          console.log("[DepLao-Main] Đã chặn XHR báo Đã Xem:", details.url);
-        }
-      }
-
-      // Chặn Đang nhập (Block Typing)
-      if (settings.blockTyping) {
-        if (details.url.includes('/api/message/typing')) {
-          cancel = true;
-          console.log("[DepLao-Main] Đã chặn XHR báo Đang Nhập:", details.url);
-        }
-      }
-
-      callback({ cancel });
-    });
-
-    sess.setPermissionRequestHandler((webContents, permission, callback) => {
-      const url = webContents.getURL();
-      const isAllowed = urlMatchesTrusted(url, ALL_TRUSTED_DOMAIN_MARKERS);
-      if (isAllowed) {
-        const allowedPermissions = [
-          'notifications', 'media', 'mediaKeySystem', 'microphone',
-          'camera', 'clipboard-read', 'clipboard-sanitized-write',
-        ];
-        if (allowedPermissions.includes(permission)) {
-          callback(true);
-          return;
-        }
-      }
-      callback(false);
-    });
-
-    sess.setPermissionCheckHandler((webContents, permission) => {
-      const url = webContents?.getURL() || '';
-      return urlMatchesTrusted(url, ALL_TRUSTED_DOMAIN_MARKERS);
-    });
   });
 
   mainWindow.loadFile('index.html');
@@ -505,20 +417,12 @@ function createWindow() {
   });
 
   // IPC
-  ipcMain.handle('get-services-ui', () => {
-    return listServicesSorted(serviceRegistry).map((m) => ({
-      id: m.id,
-      name: m.name,
-      order: m.order,
-      iconPath: m._iconPath,
-    }));
-  });
-
   ipcMain.on('switch-profile', (event, profile) => {
     activeProfileId = profile.id;
-    const platform = profile.platform || 'zalo';
+    const platform = profile.platform || 'messenger';
     const manifest = getManifest(serviceRegistry, platform);
     const preloadPath = resolvePreloadPath(manifest);
+    const ua = getUserAgentForService(USER_AGENT, manifest);
 
     if (!browserViews[profile.id]) {
       const view = new BrowserView({
@@ -532,32 +436,18 @@ function createWindow() {
       browserViews[profile.id] = view;
       setupWebContents(view.webContents, profile);
 
-      // Cài đặt proxy
-      const sess = session.fromPartition(profile.partition);
-      if (profile.proxy) {
-        sess.setProxy({ proxyRules: profile.proxy });
-        console.log(`[DepLao] Đã cấu hình Proxy [${profile.proxy}] cho tài khoản ${profile.name}`);
-      } else {
-        sess.setProxy({ proxyRules: 'direct://' });
-      }
-
       const startUrl = getStartUrl(serviceRegistry, platform, DEFAULT_SERVICE_FALLBACK_URL);
-      const ua = getUserAgentForService(USER_AGENT, manifest);
-      view.webContents.loadURL(startUrl, { userAgent: ua });
+      // loadURL({ userAgent }) không áp hết worker/subresource/SW — Meta có thể trả 400 cho bundle fbcdn
+      view.webContents.session.setUserAgent(ua);
+      view.webContents.setUserAgent(ua);
+      view.webContents.loadURL(startUrl);
+    } else {
+      const wc = browserViews[profile.id].webContents;
+      wc.session.setUserAgent(ua);
+      wc.setUserAgent(ua);
     }
     mainWindow.setBrowserView(browserViews[profile.id]);
     updateBrowserViewBounds();
-  });
-
-  ipcMain.on('update-profile-settings', (event, profile) => {
-    const sess = session.fromPartition(profile.partition);
-    if (profile.proxy) {
-      sess.setProxy({ proxyRules: profile.proxy });
-      console.log(`[DepLao] Đã cập nhật Proxy [${profile.proxy}] cho tài khoản ${profile.name}`);
-    } else {
-      sess.setProxy({ proxyRules: 'direct://' });
-      console.log(`[DepLao] Đã gỡ Proxy cho tài khoản ${profile.name}`);
-    }
   });
 
   ipcMain.on('set-browserview-visibility', (event, visible) => {
@@ -629,8 +519,6 @@ function createWindow() {
     event.returnValue = {
       isDarkMode: settings.isDarkMode,
       alwaysOnTop: settings.alwaysOnTop,
-      blockSeen: settings.blockSeen,
-      blockTyping: settings.blockTyping,
     };
   });
 }
@@ -652,7 +540,7 @@ function updateBadge(count) {
     }
   }
   if (tray) {
-    tray.setToolTip(count > 0 ? `Zalo — ${count} tin nhắn chưa đọc` : 'Zalo');
+    tray.setToolTip(count > 0 ? `Messenger — ${count} tin nhắn chưa đọc` : 'Messenger');
   }
 }
 

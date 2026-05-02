@@ -11,6 +11,6 @@ Tài liệu đặc tả để mở rộng ứng dụng (thêm dịch vụ web, c
 
 ## Nguyên tắc
 
-- Mỗi **dịch vụ** (Messenger, Zalo, …) là một thư mục dưới `apps/` cùng `manifest.json`.
+- Mỗi **dịch vụ** (ví dụ Messenger) là một thư mục dưới `apps/` cùng `manifest.json`.
 - Shell (sidebar, modal tài khoản) **không** hard-code danh sách URL; lấy từ registry (`apps-registry.js`).
 - Chi tiết triển khai có thể thay đổi; khi sửa hành vi, cập nhật spec tương ứng.

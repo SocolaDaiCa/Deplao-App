@@ -1,8 +1,0 @@
-{
-  "id": "zalo",
-  "name": "Zalo",
-  "startUrl": "https://chat.zalo.me",
-  "order": 20,
-  "trustedDomains": ["zalo.me", "zadn.vn"],
-  "preload": "preload.js"
-}

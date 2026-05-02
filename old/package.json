@@ -9,8 +9,8 @@
     "build:portable": "electron-builder --win portable"
   },
   "build": {
-    "appId": "com.Zalo.desktop",
-    "productName": "Zalo",
+    "appId": "com.deplao.messenger",
+    "productName": "Dép Lào Messenger",
     "directories": {
       "output": "dist"
     },
@@ -47,13 +47,13 @@
       {
         "provider": "github",
         "owner": "Tiodev71",
-        "repo": "Zalo"
+        "repo": "Deplao-App"
       }
     ]
   },
   "keywords": [
-    "Zalo",
-    "Zalo",
+    "Messenger",
+    "Facebook",
     "desktop",
     "electron"
   ],

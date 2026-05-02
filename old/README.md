@@ -16,7 +16,7 @@
 
 ---
 
-**DepLao** là ứng dụng quản lý Zalo đa tài khoản (Multi-Account) chuyên nghiệp — được xây dựng trên nhân Chromium siêu tốc và bảo mật.
+**DepLao** là ứng dụng **Facebook Messenger** đa tài khoản trên Windows — xây dựng trên Electron (Chromium).
 
 <p align="center">
   <img src="preview.png" alt="DepLao Preview" style="max-width: 100%; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.3);"/>
@@ -86,7 +86,7 @@ Sau đó tạo Release mới trên Github và đính kèm 2 tệp trong thư m�
 | `renderer.js` | Logic điều khiển Sidebar đa tài khoản, Modal UI. |
 | `index.html` | Khung Sidebar & Modal Overlay. |
 | `preload.js` | Cầu nối an toàn bảo mật giữa DOM và Backend. |
-| `custom_style.css`| Giao diện Dark Glass và tùy biến CSS cho Zalo. |
+| `apps/messenger/style.css` | CSS tùy biến giao diện Messenger (inject qua manifest). |
 | `preview.png` | Ảnh Dummy giao diện hiển thị. |
 
 ## ⚠️ Lưu ý Bảo mật & Giới hạn
