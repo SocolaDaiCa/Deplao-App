@@ -34,6 +34,9 @@ body.light-mode,
   overflow-y: auto;
   /* Giữ chỗ cho scrollbar để layout không nhảy / không ép méo avatar khi scrollbar xuất hiện */
   scrollbar-gutter: stable;
+  /* Badge dùng top: -6px; padding để vùng cuộn không cắt mép trên (item đầu) */
+  padding-top: 10px;
+  box-sizing: border-box;
 }
 
 #btn-add-profile {

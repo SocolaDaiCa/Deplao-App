@@ -28,6 +28,7 @@ import {
   setAppsRoot,
   type Manifest,
 } from './apps-registry'
+import { createWindowsTaskbarOverlayIcon } from './win-taskbar-badge'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -111,11 +112,22 @@ let settings = loadSettings()
 let isQuitting = false
 let unreadCount = 0
 
+/** Đếm chưa đọc theo từng profile (poll từ getBadgeCount) — overlay taskbar dùng tổng. */
+const profileBadgeCounts: Record<string, number> = {}
+
 const browserViews: Record<string, BrowserView> = {}
 /** Theo dõi app đã load cho mỗi phiên — đổi Messenger/Gmail cần tạo lại view / load URL. */
 const profileViewPlatform: Record<string, string> = {}
 let activeProfileId: string | null = null
 let ipcBound = false
+
+function sumProfileBadgeCounts(): number {
+  let s = 0
+  for (const v of Object.values(profileBadgeCounts)) {
+    if (typeof v === 'number' && !Number.isNaN(v)) s += Math.max(0, v)
+  }
+  return s
+}
 
 function destroyBrowserViewForProfile(id: string): void {
   const view = browserViews[id]
@@ -132,6 +144,8 @@ function destroyBrowserViewForProfile(id: string): void {
   }
   delete browserViews[id]
   delete profileViewPlatform[id]
+  delete profileBadgeCounts[id]
+  updateBadge(sumProfileBadgeCounts())
 }
 
 function configurePartitionSession(session: Electron.Session): void {
@@ -267,23 +281,6 @@ function wireChildWindowOpenChain(contents: Electron.WebContents, partition: str
       wireChildWindowOpenChain(childWindow.webContents, partition)
     }
   })
-}
-
-function createBadgeIcon(count: number): Electron.NativeImage {
-  const size = 18
-  const text = count > 9 ? String(count) : String(count)
-  const fontSize = count > 9 ? 9 : 11
-
-  const svg = `
-    <svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="${size / 2}" cy="${size / 2}" r="${size / 2}" fill="#e74c3c"/>
-      <text x="${size / 2}" y="${size / 2 + fontSize / 3}"
-            text-anchor="middle" fill="white"
-            font-size="${fontSize}" font-weight="bold"
-            font-family="Arial, sans-serif">${text}</text>
-    </svg>`
-
-  return nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`)
 }
 
 function updateTrayMenu(): void {
@@ -511,8 +508,9 @@ function setupWebContents(
       if (mainWindow && profileId) {
         mainWindow.webContents.send('update-profile-badge', { id: profileId, count })
       }
-      if (profileId === activeProfileId) {
-        updateBadge(count)
+      if (profileId) {
+        profileBadgeCounts[profileId] = count
+        updateBadge(sumProfileBadgeCounts())
       }
     } catch {
       /* ignore */
@@ -594,10 +592,11 @@ function registerIpcHandlers(): void {
   })
 
   ipcMain.on('update-badge', (_event, count: number) => {
-    if (count !== unreadCount) {
-      const hadNewMessages = count > unreadCount
-      unreadCount = count
-      updateBadge(unreadCount)
+    const n = typeof count === 'number' && !Number.isNaN(count) ? Math.max(0, Math.floor(count)) : 0
+    if (n !== unreadCount) {
+      const hadNewMessages = n > unreadCount
+      unreadCount = n
+      updateBadge(n)
       if (hadNewMessages && mainWindow && !mainWindow.isFocused()) {
         mainWindow.flashFrame(true)
       }
@@ -710,19 +709,36 @@ function createWindow(): void {
 
 function updateBadge(count: number): void {
   if (!mainWindow) return
+  const tipCount = count > 99 ? '99+' : String(count)
   if (process.platform === 'win32') {
-    if (count > 0) {
-      try {
-        mainWindow.setOverlayIcon(createBadgeIcon(count), `${count} chưa đọc`)
-      } catch {
-        mainWindow.setOverlayIcon(null, '')
+    /** Shell nhận PNG 16×16; setImmediate giảm race khi cửa sổ ẩn/minimize. */
+    setImmediate(() => {
+      const win = mainWindow
+      if (!win || win.isDestroyed()) return
+      if (count <= 0) {
+        try {
+          win.setOverlayIcon(null, '')
+        } catch {
+          /* ignore */
+        }
+        return
       }
-    } else {
-      mainWindow.setOverlayIcon(null, '')
-    }
+      try {
+        const overlay = createWindowsTaskbarOverlayIcon(count)
+        if (overlay.isEmpty()) {
+          win.setOverlayIcon(null, '')
+        } else {
+          win.setOverlayIcon(overlay, `${tipCount} chưa đọc`)
+        }
+      } catch {
+        win.setOverlayIcon(null, '')
+      }
+    })
+  } else if (process.platform === 'darwin') {
+    app.dock.setBadge(count > 0 ? tipCount : '')
   }
   if (tray) {
-    tray.setToolTip(count > 0 ? `DepLao — ${count} chưa đọc` : 'DepLao')
+    tray.setToolTip(count > 0 ? `DepLao — ${tipCount} chưa đọc` : 'DepLao')
   }
 }
 
