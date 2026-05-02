@@ -267,5 +267,6 @@ if (settings.alwaysOnTop) {
 
 fillServiceSelect().then(() => {
   renderSidebar();
+  ipcRenderer.send('preload-all-profiles', profiles);
   switchProfile(activeProfileId);
 });

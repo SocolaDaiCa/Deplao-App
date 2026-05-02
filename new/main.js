@@ -283,6 +283,40 @@ function updateMainWindowTitle(profile) {
   mainWindow.setTitle(`DepLao — ${label}`);
 }
 
+function ensureProfileView(profile) {
+  serviceRegistry = loadRegistry();
+  const platform = profile.platform || 'messenger';
+  const manifest = getManifest(serviceRegistry, platform);
+  const preloadPath = resolvePreloadPath(manifest);
+  const ua = getUserAgentForService(USER_AGENT, manifest);
+
+  if (!browserViews[profile.id]) {
+    const view = new BrowserView({
+      webPreferences: {
+        partition: profile.partition,
+        preload: preloadPath,
+        contextIsolation: true,
+        nodeIntegration: false,
+        spellcheck: true,
+      },
+    });
+    browserViews[profile.id] = view;
+    configurePartitionSession(view.webContents.session);
+    setupWebContents(view.webContents, profile);
+
+    const startUrl = getStartUrl(serviceRegistry, platform, DEFAULT_SERVICE_FALLBACK_URL);
+    view.webContents.session.setUserAgent(ua);
+    view.webContents.setUserAgent(ua);
+    patchGoogleAccountHeaders(view.webContents.session, ua);
+    view.webContents.loadURL(startUrl);
+  } else {
+    const wc = browserViews[profile.id].webContents;
+    wc.session.setUserAgent(ua);
+    wc.setUserAgent(ua);
+    patchGoogleAccountHeaders(wc.session, ua);
+  }
+}
+
 function setupWebContents(contents, profile) {
   const profileId = profile.id;
   const platform = profile.platform || 'messenger';
@@ -388,39 +422,16 @@ function registerIpcHandlers() {
     return listServicesSorted(serviceRegistry).map((m) => ({ id: m.id, name: m.name }));
   });
 
+  ipcMain.on('preload-all-profiles', (event, profiles) => {
+    if (!Array.isArray(profiles)) return;
+    for (const profile of profiles) {
+      ensureProfileView(profile);
+    }
+  });
+
   ipcMain.on('switch-profile', (event, profile) => {
     activeProfileId = profile.id;
-    serviceRegistry = loadRegistry();
-    const platform = profile.platform || 'messenger';
-    const manifest = getManifest(serviceRegistry, platform);
-    const preloadPath = resolvePreloadPath(manifest);
-    const ua = getUserAgentForService(USER_AGENT, manifest);
-
-    if (!browserViews[profile.id]) {
-      const view = new BrowserView({
-        webPreferences: {
-          partition: profile.partition,
-          preload: preloadPath,
-          contextIsolation: true,
-          nodeIntegration: false,
-          spellcheck: true,
-        },
-      });
-      browserViews[profile.id] = view;
-      configurePartitionSession(view.webContents.session);
-      setupWebContents(view.webContents, profile);
-
-      const startUrl = getStartUrl(serviceRegistry, platform, DEFAULT_SERVICE_FALLBACK_URL);
-      view.webContents.session.setUserAgent(ua);
-      view.webContents.setUserAgent(ua);
-      patchGoogleAccountHeaders(view.webContents.session, ua);
-      view.webContents.loadURL(startUrl);
-    } else {
-      const wc = browserViews[profile.id].webContents;
-      wc.session.setUserAgent(ua);
-      wc.setUserAgent(ua);
-      patchGoogleAccountHeaders(wc.session, ua);
-    }
+    ensureProfileView(profile);
     mainWindow.setBrowserView(browserViews[profile.id]);
     updateBrowserViewBounds();
     updateMainWindowTitle(profile);
