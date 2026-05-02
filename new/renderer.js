@@ -238,7 +238,7 @@ document.getElementById('btn-reload').onclick = () => ipcRenderer.send('reload-p
 ipcRenderer.on('update-profile-badge', (event, { id, count }) => {
   const badge = document.getElementById(`badge-${id}`);
   if (badge) {
-    badge.innerText = count > 9 ? '9+' : count;
+    badge.innerText = count > 9 ? count : count;
     badge.style.display = count > 0 ? 'block' : 'none';
   }
 });

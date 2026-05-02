@@ -3,8 +3,14 @@
 const fs = require('fs');
 const path = require('path');
 
+const { readWebScript } = require('./web-script');
+
 const APPS_ROOT = path.join(__dirname, 'apps');
 const SHARED_PRELOAD = path.join(APPS_ROOT, '_shared', 'preload-default.js');
+const DEFAULT_APP_MODULE = path.join(APPS_ROOT, '_shared', 'app-default.js');
+
+/** @type {Map<string, typeof import('./apps/_shared/app-default.js').App>} */
+const appClassCache = new Map();
 
 function normalizeManifest(dirName, dir, raw) {
   const id = raw.id || dirName;
@@ -77,6 +83,30 @@ function getUserAgentForService(defaultUserAgent, manifest) {
   return defaultUserAgent;
 }
 
+/**
+ * Class App trong apps/<id>/app.js — static getAvatar, getAvatarFallback, getBadgeCount.
+ */
+function loadAppClass(manifest) {
+  const { App: DefaultApp } = require(DEFAULT_APP_MODULE);
+  if (!manifest?.dir) return DefaultApp;
+  const key = manifest.id;
+  if (appClassCache.has(key)) return appClassCache.get(key);
+  const appPath = path.join(manifest.dir, 'app.js');
+  let AppClass = DefaultApp;
+  if (fs.existsSync(appPath)) {
+    try {
+      const mod = require(appPath);
+      if (mod.App && typeof mod.App.getAvatar === 'function') {
+        AppClass = mod.App;
+      }
+    } catch (e) {
+      console.error('[DepLao] app.js error:', appPath, e);
+    }
+  }
+  appClassCache.set(key, AppClass);
+  return AppClass;
+}
+
 module.exports = {
   APPS_ROOT,
   loadRegistry,
@@ -85,4 +115,6 @@ module.exports = {
   resolvePreloadPath,
   getStartUrl,
   getUserAgentForService,
+  loadAppClass,
+  readWebScript,
 };

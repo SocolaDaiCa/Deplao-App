@@ -27,6 +27,7 @@ const {
   getStartUrl,
   getUserAgentForService,
   listServicesSorted,
+  loadAppClass,
 } = require('./apps-registry');
 
 let serviceRegistry = loadRegistry();
@@ -128,9 +129,56 @@ function configurePartitionSession(session) {
   } catch (_) {}
 }
 
+/** Google đăng nhập so khớp UA với Sec-CH-UA; Electron gửi “Chromium” khiến trang bảo “không an toàn”. */
+const sessionsGoogleHintsPatched = new WeakSet();
+const sessionGoogleLatestUa = new WeakMap();
+
+function secChUaPlatformFromUserAgent(ua) {
+  if (/Macintosh|Mac OS X/i.test(ua)) {
+    return { platform: '"macOS"', platformVersion: '"14.0"' };
+  }
+  if (/Linux/i.test(ua) && !/Android/i.test(ua)) {
+    return { platform: '"Linux"', platformVersion: '""' };
+  }
+  return { platform: '"Windows"', platformVersion: '"15.0.0"' };
+}
+
+function patchGoogleAccountHeaders(session, chromeUserAgent) {
+  sessionGoogleLatestUa.set(session, chromeUserAgent);
+
+  if (sessionsGoogleHintsPatched.has(session)) return;
+  sessionsGoogleHintsPatched.add(session);
+
+  const full = process.versions.chrome;
+  const major = full.split('.')[0];
+  const secChUa = `"Google Chrome";v="${major}", "Chromium";v="${major}", "Not_A Brand";v="24"`;
+  const secChUaFull = `"Google Chrome";v="${full}", "Chromium";v="${full}", "Not_A Brand";v="24.0.0.0"`;
+  const filter = {
+    urls: [
+      '*://accounts.google.com/*',
+      '*://*.accounts.google.com/*',
+      '*://mail.google.com/*',
+      '*://ogs.google.com/*',
+    ],
+  };
+
+  session.webRequest.onBeforeSendHeaders(filter, (details, callback) => {
+    const ua = sessionGoogleLatestUa.get(session) || chromeUserAgent;
+    const { platform, platformVersion } = secChUaPlatformFromUserAgent(ua);
+    const headers = { ...details.requestHeaders };
+    headers['User-Agent'] = ua;
+    headers['Sec-CH-UA'] = secChUa;
+    headers['Sec-CH-UA-Full-Version-List'] = secChUaFull;
+    headers['Sec-CH-UA-Mobile'] = '?0';
+    headers['Sec-CH-UA-Platform'] = platform;
+    headers['Sec-CH-UA-Platform-Version'] = platformVersion;
+    callback({ requestHeaders: headers });
+  });
+}
+
 function createBadgeIcon(count) {
   const size = 18;
-  const text = count > 9 ? '9+' : String(count);
+  const text = count > 9 ? count : String(count);
   const fontSize = count > 9 ? 9 : 11;
 
   const svg = `
@@ -237,15 +285,35 @@ function updateMainWindowTitle(profile) {
 
 function setupWebContents(contents, profile) {
   const profileId = profile.id;
+  const platform = profile.platform || 'messenger';
+  const manifest = getManifest(serviceRegistry, platform);
+  const AppCls = loadAppClass(manifest);
 
   contents.setWindowOpenHandler(({ url }) => {
     try {
       const u = new URL(url);
       if (u.protocol === 'http:' || u.protocol === 'https:') {
-        return { action: 'allow' };
+        const manifest = getManifest(serviceRegistry, profile.platform || 'messenger');
+        const preloadPath = resolvePreloadPath(manifest);
+        return {
+          action: 'allow',
+          overrideBrowserWindowOptions: {
+            webPreferences: {
+              partition: profile.partition,
+              preload: preloadPath,
+              contextIsolation: true,
+              nodeIntegration: false,
+              spellcheck: true,
+            },
+          },
+        };
       }
     } catch (_) {}
     return { action: 'deny' };
+  });
+
+  contents.on('did-create-window', (childWindow) => {
+    setupWebContents(childWindow.webContents, profile);
   });
 
   contents.on('context-menu', (event, params) => {
@@ -286,49 +354,33 @@ function setupWebContents(contents, profile) {
     updateMainWindowTitle(profile);
   });
 
-  const avatarInterval = setInterval(async () => {
+  const profilePollInterval = setInterval(async () => {
     if (contents.isDestroyed()) {
-      clearInterval(avatarInterval);
+      clearInterval(profilePollInterval);
       return;
     }
-    const avatarScript = `
-      (function() {
-        let nav = document.querySelector('div[role="navigation"]');
-        if (nav) {
-          let images = nav.querySelectorAll('svg image');
-          for (let img of images) {
-            let href = img.getAttribute('xlink:href') || img.getAttribute('href');
-            if (href && (href.includes('scontent') || href.includes('fbcdn'))) return href;
-          }
-        }
-        let images = document.querySelectorAll('svg image');
-        for (let img of images) {
-          let href = img.getAttribute('xlink:href') || img.getAttribute('href');
-          if (href && (href.includes('scontent') || href.includes('fbcdn'))) return href;
-        }
-        let imgs = document.querySelectorAll('img');
-        for (let img of imgs) {
-          if (img.src && (img.src.includes('scontent') || img.src.includes('fbcdn')) && img.width > 20 && img.width < 100) return img.src;
-        }
-        return null;
-      })();
-    `;
     try {
-      const avatarUrl = await contents.executeJavaScript(avatarScript);
+      const avatarUrl = await contents.executeJavaScript(AppCls.getAvatar());
       if (avatarUrl && mainWindow && profileId) {
         mainWindow.webContents.send('update-profile-avatar', { id: profileId, avatarUrl });
       } else {
-        const cookies = await contents.session.cookies.get({ name: 'c_user' });
-        if (cookies && cookies.length > 0) {
-          const uid = cookies[0].value;
-          const fbAvatar = `https://graph.facebook.com/${uid}/picture?width=150&height=150`;
-          if (mainWindow && profileId) {
-            mainWindow.webContents.send('update-profile-avatar', { id: profileId, avatarUrl: fbAvatar });
-          }
+        const fallback = await AppCls.getAvatarFallback(contents.session);
+        if (fallback && mainWindow && profileId) {
+          mainWindow.webContents.send('update-profile-avatar', { id: profileId, avatarUrl: fallback });
         }
       }
+
+      const countRaw = await contents.executeJavaScript(AppCls.getBadgeCount());
+      const count =
+        typeof countRaw === 'number' && !Number.isNaN(countRaw) ? Math.max(0, Math.floor(countRaw)) : 0;
+      if (mainWindow && profileId) {
+        mainWindow.webContents.send('update-profile-badge', { id: profileId, count });
+      }
+      if (profileId === activeProfileId) {
+        updateBadge(count);
+      }
     } catch (_) {}
-  }, 5000);
+  }, 1000);
 
   if (app.isPackaged) {
     contents.on('before-input-event', (event, input) => {
@@ -376,11 +428,13 @@ function registerIpcHandlers() {
       const startUrl = getStartUrl(serviceRegistry, platform, DEFAULT_SERVICE_FALLBACK_URL);
       view.webContents.session.setUserAgent(ua);
       view.webContents.setUserAgent(ua);
+      patchGoogleAccountHeaders(view.webContents.session, ua);
       view.webContents.loadURL(startUrl);
     } else {
       const wc = browserViews[profile.id].webContents;
       wc.session.setUserAgent(ua);
       wc.setUserAgent(ua);
+      patchGoogleAccountHeaders(wc.session, ua);
     }
     mainWindow.setBrowserView(browserViews[profile.id]);
     updateBrowserViewBounds();
