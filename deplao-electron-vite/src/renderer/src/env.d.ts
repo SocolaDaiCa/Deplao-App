@@ -39,6 +39,7 @@ export interface DeplaoApi {
   reloadPage: () => void
   onUpdateProfileBadge: (cb: (payload: { id: string; count: number }) => void) => () => void
   onUpdateProfileAvatar: (cb: (payload: { id: string; avatarUrl: string }) => void) => () => void
+  onUpdateProfileFavicon: (cb: (payload: { id: string; faviconUrl: string }) => void) => () => void
 }
 
 declare global {

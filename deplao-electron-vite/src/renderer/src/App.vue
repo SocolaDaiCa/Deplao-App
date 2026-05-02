@@ -52,6 +52,8 @@ const profileNameInputRef = ref<HTMLInputElement | null>(null)
 const profileNameError = ref('')
 
 const badgeCounts = ref<Record<string, number>>({})
+/** Favicon trang hiện tại theo phiên (IPC `page-favicon-updated` từ WebContents). */
+const profileFavicons = ref<Record<string, string>>({})
 
 /** Fallback khi registry/IPC lỗi — tránh combobox rỗng, không thể thêm phiên. */
 const serviceOptions = computed(() => {
@@ -120,6 +122,10 @@ function badgeText(id: string): string {
 
 function badgeVisible(id: string): boolean {
   return (badgeCounts.value[id] ?? 0) > 0
+}
+
+function faviconForProfile(id: string): string | null {
+  return profileFavicons.value[id] ?? null
 }
 
 watch(isDarkMode, (v) => {
@@ -240,6 +246,7 @@ function togglePin() {
 
 let unsubBadge: (() => void) | undefined
 let unsubAvatar: (() => void) | undefined
+let unsubFavicon: (() => void) | undefined
 
 onMounted(async () => {
   loadProfilesFromStorage()
@@ -289,6 +296,10 @@ onMounted(async () => {
       }
     })
 
+    unsubFavicon = api.onUpdateProfileFavicon(({ id, faviconUrl }) => {
+      profileFavicons.value = { ...profileFavicons.value, [id]: faviconUrl }
+    })
+
     api.preloadAllProfiles(profiles.value.map(profileForIpc))
   }
 
@@ -300,6 +311,7 @@ onMounted(async () => {
 onUnmounted(() => {
   unsubBadge?.()
   unsubAvatar?.()
+  unsubFavicon?.()
 })
 </script>
 
@@ -322,6 +334,12 @@ onUnmounted(() => {
         <span v-show="!avatarSrcForProfile(p)" style="position: relative; z-index: 1">{{
           profileLetter(p)
         }}</span>
+        <img
+          v-if="faviconForProfile(p.id)"
+          class="profile-site-favicon"
+          :src="faviconForProfile(p.id)!"
+          alt=""
+        />
         <div class="badge" :class="{ visible: badgeVisible(p.id) }">{{ badgeText(p.id) }}</div>
       </div>
     </div>

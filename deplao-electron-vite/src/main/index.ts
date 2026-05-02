@@ -481,6 +481,14 @@ function setupWebContents(
     updateMainWindowTitle(profile)
   })
 
+  contents.on('page-favicon-updated', (_event, favicons: string[]) => {
+    if (!mainWindow || !profileId) return
+    const url = Array.isArray(favicons) && favicons.length > 0 ? favicons[0] : ''
+    if (url) {
+      mainWindow.webContents.send('update-profile-favicon', { id: profileId, faviconUrl: url })
+    }
+  })
+
   const profilePollInterval = setInterval(async () => {
     if (contents.isDestroyed()) {
       clearInterval(profilePollInterval)

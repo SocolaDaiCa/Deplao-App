@@ -44,4 +44,9 @@ contextBridge.exposeInMainWorld('deplao', {
     ipcRenderer.on('update-profile-avatar', listener)
     return () => ipcRenderer.removeListener('update-profile-avatar', listener)
   },
+  onUpdateProfileFavicon: (cb: (payload: { id: string; faviconUrl: string }) => void) => {
+    const listener = (_e: IpcRendererEvent, payload: { id: string; faviconUrl: string }) => cb(payload)
+    ipcRenderer.on('update-profile-favicon', listener)
+    return () => ipcRenderer.removeListener('update-profile-favicon', listener)
+  },
 })
