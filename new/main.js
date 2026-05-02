@@ -289,31 +289,16 @@ function setupWebContents(contents, profile) {
   const manifest = getManifest(serviceRegistry, platform);
   const AppCls = loadAppClass(manifest);
 
+  /** Link `target=_blank` / `window.open` → mở bằng trình duyệt hệ thống, không tạo popup trong Electron. */
   contents.setWindowOpenHandler(({ url }) => {
     try {
       const u = new URL(url);
       if (u.protocol === 'http:' || u.protocol === 'https:') {
-        const manifest = getManifest(serviceRegistry, profile.platform || 'messenger');
-        const preloadPath = resolvePreloadPath(manifest);
-        return {
-          action: 'allow',
-          overrideBrowserWindowOptions: {
-            webPreferences: {
-              partition: profile.partition,
-              preload: preloadPath,
-              contextIsolation: true,
-              nodeIntegration: false,
-              spellcheck: true,
-            },
-          },
-        };
+        shell.openExternal(url);
+        return { action: 'deny' };
       }
     } catch (_) {}
     return { action: 'deny' };
-  });
-
-  contents.on('did-create-window', (childWindow) => {
-    setupWebContents(childWindow.webContents, profile);
   });
 
   contents.on('context-menu', (event, params) => {
