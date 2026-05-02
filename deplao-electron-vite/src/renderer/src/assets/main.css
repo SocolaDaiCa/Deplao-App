@@ -1,0 +1,403 @@
+body,
+html {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #111111;
+  color: white;
+  font-family:
+    'Inter',
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif;
+}
+
+body.light-mode,
+.light-mode {
+  background: #f0f2f5;
+  color: #1c1e21;
+}
+
+#app {
+  height: 100%;
+}
+
+#profiles-list {
+  flex: auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  /* Giữ chỗ cho scrollbar để layout không nhảy / không ép méo avatar khi scrollbar xuất hiện */
+  scrollbar-gutter: stable;
+}
+
+#btn-add-profile {
+  flex-shrink: 0;
+}
+
+#sidebar {
+  width: 68px;
+  height: 100%;
+  background: rgba(22, 22, 26, 0.65);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px 0 16px;
+  z-index: 100;
+  transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+  box-sizing: border-box;
+  box-shadow: 4px 0 24px rgba(0, 0, 0, 0.3);
+}
+
+.light-mode #sidebar {
+  background: rgba(255, 255, 255, 0.75);
+  border-right: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow: 4px 0 24px rgba(0, 0, 0, 0.06);
+}
+
+.profile-btn {
+  width: 46px;
+  height: 46px;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  margin-bottom: 16px;
+  cursor: pointer;
+  border: 2px solid transparent;
+  background: linear-gradient(135deg, #2a2b2e, #1c1d1f);
+  color: #f0f0f0;
+  font-weight: 600;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 18px;
+  position: relative;
+  /* visible để badge không bị cắt; ảnh vẫn tròn nhờ border-radius trên img */
+  overflow: visible;
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.profile-btn > img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  position: absolute;
+  inset: 0;
+}
+
+.light-mode .profile-btn {
+  background: linear-gradient(135deg, #ffffff, #eef0f4);
+  color: #333;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.profile-btn:hover {
+  transform: translateY(-3px) scale(1.08);
+  box-shadow: 0 8px 20px rgba(0, 136, 255, 0.3);
+  border-color: rgba(0, 136, 255, 0.4);
+}
+
+.profile-btn.active {
+  border: 2px solid #0088ff;
+  background: linear-gradient(135deg, #0088ff, #0055ff);
+  color: white;
+  box-shadow: 0 0 16px rgba(0, 136, 255, 0.5);
+}
+
+.light-mode .profile-btn.active {
+  box-shadow: 0 4px 16px rgba(0, 136, 255, 0.4);
+}
+
+.badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  z-index: 2;
+  background: linear-gradient(135deg, #ff416c, #ff4b2b);
+  color: white;
+  border-radius: 12px;
+  font-size: 10px;
+  padding: 3px 6px;
+  display: none;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(255, 75, 43, 0.5);
+  border: 2px solid #16161a;
+  transition: all 0.3s ease;
+}
+
+.badge.visible {
+  display: block;
+}
+
+.light-mode .badge {
+  border: 2px solid #ffffff;
+}
+
+.sidebar-spacer {
+  flex: 1;
+}
+
+.tool-btn {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
+  color: #8e8e93;
+  margin-bottom: 6px;
+  padding: 0;
+}
+
+.light-mode .tool-btn {
+  color: #8a8d91;
+}
+
+.tool-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  transform: scale(1.08);
+}
+
+.light-mode .tool-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: #000000;
+}
+
+.tool-btn svg {
+  width: 22px;
+  height: 22px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: all 0.2s ease;
+}
+
+#btn-add-profile {
+  border: 2px dashed rgba(255, 255, 255, 0.2);
+  background: transparent;
+  color: #8e8e93;
+  box-shadow: none;
+}
+
+.light-mode #btn-add-profile {
+  border: 2px dashed rgba(0, 0, 0, 0.2);
+  color: #8a8d91;
+}
+
+#btn-add-profile:hover {
+  border-color: #0088ff;
+  color: #0088ff;
+  background: rgba(0, 136, 255, 0.15);
+  transform: scale(1.08) rotate(90deg);
+}
+
+#modal-overlay {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 9999;
+  justify-content: center;
+  align-items: center;
+  animation: fadeIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+#modal-overlay.open {
+  display: flex;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.modal-box {
+  background: rgba(22, 22, 26, 0.85);
+  padding: 32px;
+  border-radius: 24px;
+  width: 340px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  transform: translateY(0) scale(1);
+  animation: modalSlideUp 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes modalSlideUp {
+  from {
+    transform: translateY(40px) scale(0.9);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+.light-mode .modal-box {
+  background: rgba(255, 255, 255, 0.9);
+  color: #1c1e21;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.12);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.modal-label {
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 0.85;
+  margin-bottom: 8px;
+  display: block;
+}
+
+.modal-select {
+  width: 100%;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(0, 0, 0, 0.25);
+  color: white;
+  box-sizing: border-box;
+  outline: none;
+  margin-bottom: 16px;
+  font-size: 15px;
+  font-weight: 500;
+  transition: all 0.3s ease;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.light-mode .modal-select {
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(0, 0, 0, 0.1);
+  color: #1c1e21;
+}
+
+.modal-input {
+  width: 100%;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(0, 0, 0, 0.25);
+  color: white;
+  box-sizing: border-box;
+  outline: none;
+  margin-bottom: 24px;
+  margin-top: 12px;
+  font-size: 15px;
+  font-weight: 500;
+  transition: all 0.3s ease;
+  font-family: inherit;
+}
+
+.modal-input::placeholder {
+  color: #8e8e93;
+  font-weight: 400;
+}
+
+.modal-input:focus {
+  border-color: #0088ff;
+  box-shadow: 0 0 0 4px rgba(0, 136, 255, 0.15);
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.light-mode .modal-input {
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(0, 0, 0, 0.1);
+  color: #1c1e21;
+}
+
+.light-mode .modal-input:focus {
+  background: white;
+}
+
+.modal-name-field {
+  margin-top: 12px;
+  margin-bottom: 24px;
+}
+
+.modal-name-field .modal-input {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.modal-field-error {
+  color: #e74c3c;
+  font-size: 13px;
+  margin: 8px 0 0;
+  line-height: 1.35;
+}
+
+.light-mode .modal-field-error {
+  color: #c0392b;
+}
+
+.modal-btn {
+  padding: 12px 24px;
+  border-radius: 12px;
+  border: none;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 15px;
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  font-family: inherit;
+}
+
+.modal-btn.cancel {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+.modal-btn.cancel:hover {
+  background: rgba(255, 255, 255, 0.18);
+  transform: translateY(-2px);
+}
+
+.light-mode .modal-btn.cancel {
+  background: rgba(0, 0, 0, 0.06);
+  color: #1c1e21;
+}
+
+.light-mode .modal-btn.cancel:hover {
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.modal-btn.save {
+  background: linear-gradient(135deg, #0088ff, #0055ff);
+  color: white;
+  margin-left: 12px;
+  box-shadow: 0 6px 16px rgba(0, 136, 255, 0.3);
+}
+
+.modal-btn.save:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 136, 255, 0.5);
+}
