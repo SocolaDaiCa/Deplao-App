@@ -37,7 +37,7 @@ function resolveAppsRoot(): string {
   if (app.isPackaged) {
     return path.join(process.resourcesPath, 'apps')
   }
-  /** Dev/preview: main bundle is `<project>/out/main/*.js` → `apps` lives at `<project>/apps`. */
+  /** Dev/preview: main bundle is `<project>/out/main/*.js` ? `apps` lives at `<project>/apps`. */
   const fromMainBundle = path.resolve(__dirname, '../../apps')
   if (fs.existsSync(fromMainBundle)) return fromMainBundle
   const fromGetAppPath = path.join(app.getAppPath(), 'apps')
@@ -59,6 +59,9 @@ if (process.platform === 'win32') {
   app.commandLine.appendSwitch('disk-cache-dir', diskCache)
   app.commandLine.appendSwitch('disable-gpu-shader-disk-cache')
 }
+
+/** Prevent Google from detecting Electron via navigator.webdriver. */
+app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled')
 
 const USER_AGENT = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${process.versions.chrome} Safari/537.36`
 
@@ -112,11 +115,11 @@ let settings = loadSettings()
 let isQuitting = false
 let unreadCount = 0
 
-/** Đếm chưa đọc theo từng profile (poll từ getBadgeCount) — overlay taskbar dùng tổng. */
+/** ??m ch?a ??c theo t?ng profile (poll t? getBadgeCount) ? overlay taskbar d?ng t?ng. */
 const profileBadgeCounts: Record<string, number> = {}
 
 const browserViews: Record<string, BrowserView> = {}
-/** Theo dõi app đã load cho mỗi phiên — đổi Messenger/Gmail cần tạo lại view / load URL. */
+/** Theo d?i app ?? load cho m?i phi?n ? ??i Messenger/Gmail c?n t?o l?i view / load URL. */
 const profileViewPlatform: Record<string, string> = {}
 let activeProfileId: string | null = null
 let ipcBound = false
@@ -135,7 +138,7 @@ function destroyBrowserViewForProfile(id: string): void {
   if (mainWindow) mainWindow.removeBrowserView(view)
   const wc = view.webContents
   if (!wc.isDestroyed()) {
-    // Giống `new/main.js`: `destroy()` giải phóng view sạch hơn `close()` cho BrowserView.
+    // Gi?ng `new/main.js`: `destroy()` gi?i ph?ng view s?ch h?n `close()` cho BrowserView.
     if (typeof wc.destroy === 'function') {
       wc.destroy()
     } else {
@@ -192,6 +195,7 @@ function secChUaPlatformFromUserAgent(ua: string): { platform: string; platformV
   return { platform: '"Windows"', platformVersion: '"15.0.0"' }
 }
 
+/** Patch Client Hints headers for Google domains so sign-in is not blocked as "insecure browser". */
 function patchGoogleAccountHeaders(session: Electron.Session, chromeUserAgent: string): void {
   sessionGoogleLatestUa.set(session, chromeUserAgent)
 
@@ -202,12 +206,19 @@ function patchGoogleAccountHeaders(session: Electron.Session, chromeUserAgent: s
   const major = full.split('.')[0]
   const secChUa = `"Google Chrome";v="${major}", "Chromium";v="${major}", "Not_A Brand";v="24"`
   const secChUaFull = `"Google Chrome";v="${full}", "Chromium";v="${full}", "Not_A Brand";v="24.0.0.0"`
+  /** Cover all Google OAuth redirect domains so no request is missing Client Hints. */
   const filter = {
     urls: [
       '*://accounts.google.com/*',
       '*://*.accounts.google.com/*',
       '*://mail.google.com/*',
       '*://ogs.google.com/*',
+      '*://www.google.com/*',
+      '*://google.com/*',
+      '*://*.google.com/*',
+      '*://oauth2.googleapis.com/*',
+      '*://*.googleapis.com/*',
+      '*://myaccount.google.com/*',
     ],
   }
 
@@ -218,76 +229,48 @@ function patchGoogleAccountHeaders(session: Electron.Session, chromeUserAgent: s
     headers['User-Agent'] = ua
     headers['Sec-CH-UA'] = secChUa
     headers['Sec-CH-UA-Full-Version-List'] = secChUaFull
+    headers['Sec-CH-UA-Full-Version'] = `"${full}"`
     headers['Sec-CH-UA-Mobile'] = '?0'
     headers['Sec-CH-UA-Platform'] = platform
     headers['Sec-CH-UA-Platform-Version'] = platformVersion
+    headers['Sec-CH-UA-Arch'] = '"x86"'
+    headers['Sec-CH-UA-Bitness'] = '"64"'
+    headers['Sec-CH-UA-Model'] = '""'
+    headers['Sec-CH-UA-WoW64'] = '?0'
+    /** Remove Electron-injected header that can expose non-browser environment. */
+    delete headers['X-Client-Data']
     callback({ requestHeaders: headers })
   })
 }
 
-/** Popup đăng nhập Google phải mở trong Electron (cùng partition), không dùng `openExternal` — nếu không session cookie không khớp và Gmail không đăng nhập được. */
-function shouldKeepGoogleSignInInElectron(url: string): boolean {
-  try {
-    const u = new URL(url)
-    const h = u.hostname
-    if (h === 'accounts.google.com' || h.endsWith('.accounts.google.com')) return true
-    if (h === 'ogs.google.com' || h.endsWith('.ogs.google.com')) return true
-    if ((h === 'www.google.com' || h === 'google.com') && /signin|accounts/i.test(u.pathname)) return true
-    return false
-  } catch {
-    return false
-  }
+/**
+ * Build a JS snippet that overrides navigator.userAgentData in the main world
+ * so Google cannot detect Electron via the User-Agent Client Hints JS API.
+ * executeJavaScript() runs in the main world (not the isolated preload context),
+ * so Object.defineProperty on Navigator.prototype affects the page scripts.
+ */
+function buildUaDataPatchScript(): string {
+  const full = process.versions.chrome
+  const major = full.split('.')[0]
+  return `(function(){
+    var _brands=[{brand:"Google Chrome",version:"${major}"},{brand:"Chromium",version:"${major}"},{brand:"Not_A Brand",version:"24"}];
+    var _full=[{brand:"Google Chrome",version:"${full}"},{brand:"Chromium",version:"${full}"},{brand:"Not_A Brand",version:"24.0.0.0"}];
+    var _uad={
+      brands:_brands,mobile:false,platform:"Windows",
+      getHighEntropyValues:function(){return Promise.resolve({brands:_brands,fullVersionList:_full,mobile:false,platform:"Windows",platformVersion:"15.0.0",architecture:"x86",bitness:"64",model:"",uaFullVersion:"${full}",wow64:false});},
+      toJSON:function(){return {brands:_brands,mobile:false,platform:"Windows"};}
+    };
+    try{Object.defineProperty(Navigator.prototype,"userAgentData",{get:function(){return _uad;},configurable:true,enumerable:true});}catch(e){}
+  })();`
 }
 
-function createWindowOpenHandlerForPartition(partition: string) {
-  return (details: { url: string }): Electron.HandlerResponse => {
-    const { url } = details
-    try {
-      const u = new URL(url)
-      if (u.protocol === 'http:' || u.protocol === 'https:') {
-        if (shouldKeepGoogleSignInInElectron(url)) {
-          return {
-            action: 'allow',
-            overrideBrowserWindowOptions: {
-              parent: mainWindow ?? undefined,
-              autoHideMenuBar: true,
-              width: 520,
-              height: 720,
-              webPreferences: {
-                partition,
-                contextIsolation: true,
-                nodeIntegration: false,
-                spellcheck: true,
-              },
-            },
-          }
-        }
-        shell.openExternal(url)
-        return { action: 'deny' }
-      }
-    } catch {
-      /* ignore */
-    }
-    return { action: 'deny' }
-  }
-}
-
-/** Gắn handler popup + đệ quy cho cửa sổ con (OAuth Google đôi khi mở nhiều lớp popup). */
-function wireChildWindowOpenChain(contents: Electron.WebContents, partition: string): void {
-  const handler = createWindowOpenHandlerForPartition(partition)
-  contents.setWindowOpenHandler(handler)
-  contents.on('did-create-window', (_event, childWindow) => {
-    if (childWindow && !childWindow.isDestroyed()) {
-      wireChildWindowOpenChain(childWindow.webContents, partition)
-    }
-  })
-}
+const UA_DATA_PATCH_SCRIPT = buildUaDataPatchScript()
 
 function updateTrayMenu(): void {
   if (!tray) return
   const contextMenu = Menu.buildFromTemplate([
     {
-      label: 'Mở DepLao',
+      label: 'M? DepLao',
       click: () => {
         mainWindow?.show()
         mainWindow?.focus()
@@ -295,7 +278,7 @@ function updateTrayMenu(): void {
     },
     { type: 'separator' },
     {
-      label: 'Tải lại trang',
+      label: 'T?i l?i trang',
       click: () => {
         if (activeProfileId && browserViews[activeProfileId]) {
           browserViews[activeProfileId].webContents.reload()
@@ -303,13 +286,13 @@ function updateTrayMenu(): void {
       },
     },
     {
-      label: 'Khởi động cùng Windows',
+      label: 'Kh?i ??ng c?ng Windows',
       type: 'checkbox',
       checked: settings.autoLaunch,
       click: (item) => toggleAutoLaunch(item.checked),
     },
     {
-      label: 'Thu nhỏ xuống Tray khi đóng',
+      label: 'Thu nh? xu?ng Tray khi ??ng',
       type: 'checkbox',
       checked: settings.minimizeToTray,
       click: (item) => {
@@ -319,7 +302,7 @@ function updateTrayMenu(): void {
     },
     { type: 'separator' },
     {
-      label: 'Thoát hoàn toàn',
+      label: 'Tho?t ho?n to?n',
       click: () => {
         isQuitting = true
         app.quit()
@@ -379,7 +362,7 @@ function updateMainWindowTitle(profile: { platform?: string }): void {
   if (!mainWindow || !profile) return
   const m = getManifest(serviceRegistry, profile.platform || 'messenger')
   const label = m?.name || 'DepLao'
-  mainWindow.setTitle(`DepLao — ${label}`)
+  mainWindow.setTitle(`DepLao ? ${label}`)
 }
 
 function ensureProfileView(profile: {
@@ -402,6 +385,7 @@ function ensureProfileView(profile: {
   if (!browserViews[profile.id]) {
     const view = new BrowserView({
       webPreferences: {
+        sandbox: true,
         partition: profile.partition,
         preload: preloadPath,
         contextIsolation: true,
@@ -417,6 +401,8 @@ function ensureProfileView(profile: {
     view.webContents.session.setUserAgent(ua)
     view.webContents.setUserAgent(ua)
     patchGoogleAccountHeaders(view.webContents.session, ua)
+    /** Inject UA patch BEFORE loadURL so Google scripts never see real userAgentData. */
+    view.webContents.executeJavaScript(UA_DATA_PATCH_SCRIPT).catch(() => {})
     view.webContents.loadURL(startUrl)
   } else {
     const wc = browserViews[profile.id].webContents
@@ -438,7 +424,19 @@ function setupWebContents(
   const manifest = getManifest(serviceRegistry, platform)
   const AppCls = loadAppClass(manifest)
 
-  wireChildWindowOpenChain(contents, profile.partition)
+  /** Link `target=_blank` / `window.open` ? m? b?ng tr?nh duy?t h? th?ng, kh?ng t?o popup trong Electron. */
+  contents.setWindowOpenHandler(({ url }) => {
+    try {
+      const u = new URL(url)
+      if (u.protocol === 'http:' || u.protocol === 'https:') {
+        shell.openExternal(url)
+        return { action: 'deny' }
+      }
+    } catch {
+      /* ignore */
+    }
+    return { action: 'deny' }
+  })
 
   contents.on('context-menu', (_event, params) => {
     const menu = new Menu()
@@ -448,30 +446,42 @@ function setupWebContents(
       }
       if (params.dictionarySuggestions.length > 0) menu.append(new MenuItem({ type: 'separator' }))
     }
-    if (params.selectionText) menu.append(new MenuItem({ label: 'Sao chép', role: 'copy' }))
+    if (params.selectionText) menu.append(new MenuItem({ label: 'Sao ch?p', role: 'copy' }))
     if (params.isEditable) {
-      menu.append(new MenuItem({ label: 'Dán', role: 'paste' }))
-      menu.append(new MenuItem({ label: 'Cắt', role: 'cut' }))
-      menu.append(new MenuItem({ label: 'Chọn tất cả', role: 'selectAll' }))
+      menu.append(new MenuItem({ label: 'D?n', role: 'paste' }))
+      menu.append(new MenuItem({ label: 'C?t', role: 'cut' }))
+      menu.append(new MenuItem({ label: 'Ch?n t?t c?', role: 'selectAll' }))
     }
     if (params.linkURL) {
       menu.append(new MenuItem({ type: 'separator' }))
-      menu.append(new MenuItem({ label: 'Mở liên kết', click: () => shell.openExternal(params.linkURL) }))
+      menu.append(new MenuItem({ label: 'M? li?n k?t', click: () => shell.openExternal(params.linkURL) }))
       menu.append(
         new MenuItem({
-          label: 'Sao chép liên kết',
+          label: 'Sao ch?p li?n k?t',
           click: () => clipboard.writeText(params.linkURL),
         })
       )
     }
     if (params.mediaType === 'image') {
       menu.append(new MenuItem({ type: 'separator' }))
-      menu.append(new MenuItem({ label: 'Lưu ảnh', click: () => contents.downloadURL(params.srcURL) }))
+      menu.append(new MenuItem({ label: 'L?u ?nh', click: () => contents.downloadURL(params.srcURL) }))
     }
     menu.append(new MenuItem({ type: 'separator' }))
-    menu.append(new MenuItem({ label: 'Tải lại trang', click: () => contents.reload() }))
-    menu.append(new MenuItem({ label: 'Quay lại', enabled: contents.canGoBack(), click: () => contents.goBack() }))
+    menu.append(new MenuItem({ label: 'T?i l?i trang', click: () => contents.reload() }))
+    menu.append(new MenuItem({ label: 'Quay l?i', enabled: contents.canGoBack(), click: () => contents.goBack() }))
     if (menu.items.length > 0) menu.popup({ window: mainWindow ?? undefined })
+  })
+
+  contents.on('will-navigate', (_event, _url) => {
+    if (!contents.isDestroyed()) {
+      contents.executeJavaScript(UA_DATA_PATCH_SCRIPT).catch(() => {})
+    }
+  })
+
+  contents.on('dom-ready', () => {
+    if (!contents.isDestroyed()) {
+      contents.executeJavaScript(UA_DATA_PATCH_SCRIPT).catch(() => {})
+    }
   })
 
   contents.on('page-title-updated', () => {
@@ -552,7 +562,7 @@ function registerIpcHandlers(): void {
     if (!Array.isArray(profiles)) return
     for (const profile of profiles as { id: string; partition: string; platform?: string }[]) {
       if (!profile?.id || !profile.partition) {
-        console.error('[DepLao] preload-all-profiles: thiếu id/partition', profile)
+        console.error('[DepLao] preload-all-profiles: thi?u id/partition', profile)
         continue
       }
       ensureProfileView(profile)
@@ -561,7 +571,7 @@ function registerIpcHandlers(): void {
 
   ipcMain.on('switch-profile', (_event, profile: { id: string; partition: string; platform?: string }) => {
     if (!profile?.id || !profile.partition) {
-      console.error('[DepLao] switch-profile: payload không hợp lệ (Vue Proxy qua IPC?)', profile)
+      console.error('[DepLao] switch-profile: payload kh?ng h?p l? (Vue Proxy qua IPC?)', profile)
       return
     }
     activeProfileId = profile.id
@@ -569,7 +579,7 @@ function registerIpcHandlers(): void {
     if (!mainWindow) return
     const view = browserViews[profile.id]
     if (!view) {
-      console.error('[DepLao] switch-profile: không có BrowserView sau ensureProfileView', profile.id)
+      console.error('[DepLao] switch-profile: kh?ng c? BrowserView sau ensureProfileView', profile.id)
       return
     }
     mainWindow.setBrowserView(view)
@@ -711,7 +721,7 @@ function updateBadge(count: number): void {
   if (!mainWindow) return
   const tipCount = count > 99 ? '99+' : String(count)
   if (process.platform === 'win32') {
-    /** Shell nhận PNG 16×16; setImmediate giảm race khi cửa sổ ẩn/minimize. */
+    /** Shell nh?n PNG 16?16; setImmediate gi?m race khi c?a s? ?n/minimize. */
     setImmediate(() => {
       const win = mainWindow
       if (!win || win.isDestroyed()) return
@@ -728,7 +738,7 @@ function updateBadge(count: number): void {
         if (overlay.isEmpty()) {
           win.setOverlayIcon(null, '')
         } else {
-          win.setOverlayIcon(overlay, `${tipCount} chưa đọc`)
+          win.setOverlayIcon(overlay, `${tipCount} ch?a ??c`)
         }
       } catch {
         win.setOverlayIcon(null, '')
@@ -738,7 +748,7 @@ function updateBadge(count: number): void {
     app.dock.setBadge(count > 0 ? tipCount : '')
   }
   if (tray) {
-    tray.setToolTip(count > 0 ? `DepLao — ${tipCount} chưa đọc` : 'DepLao')
+    tray.setToolTip(count > 0 ? `DepLao ? ${tipCount} ch?a ??c` : 'DepLao')
   }
 }
 

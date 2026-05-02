@@ -1,15 +1,14 @@
 {
-  "id": "gmail",
-  "name": "Gmail",
-  "startUrl": "https://mail.google.com/mail/u/0/#inbox",
+  "id": "chat",
+  "name": "Google Chat",
+  "startUrl": "https://chat.google.com/app/home",
   "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36",
-  "order": 20,
+  "order": 30,
   "trustedDomains": [
     "google.com",
     "googleusercontent.com",
     "gstatic.com",
     "googleapis.com",
-    "gmail.com",
     "accounts.google.com"
   ]
 }
