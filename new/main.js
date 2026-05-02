@@ -29,16 +29,32 @@ const {
   listServicesSorted,
 } = require('./apps-registry');
 
-const serviceRegistry = loadRegistry();
+let serviceRegistry = loadRegistry();
 const DEFAULT_SERVICE_FALLBACK_URL = 'https://www.messenger.com/';
 const APP_ID = 'com.deplao.app';
+
+/**
+ * Windows: Chromium đôi khi báo `cache_util_win: Unable to move the cache` khi dùng thư mục cache mặc định
+ * (instance cũ chưa tắt, antivirus, hoặc migration cache). Gán `disk-cache-dir` cố định ngay từ đầu.
+ * Phải gọi trước app.ready (và trước mọi BrowserWindow).
+ */
+if (process.platform === 'win32') {
+  const diskCache = path.join(app.getPath('userData'), 'electron-disk-cache');
+  try {
+    fs.mkdirSync(diskCache, { recursive: true });
+  } catch (_) {}
+  app.commandLine.appendSwitch('disk-cache-dir', diskCache);
+  app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
+}
 
 /** Khớp UA với nhân Chromium — không giả mạo Chrome/xxx khác phiên bản. */
 const USER_AGENT = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${process.versions.chrome} Safari/537.36`;
 
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
+  /** Instance phụ: chỉ `app.quit()` có thể vẫn để file chạy tiếp tới `whenReady` → cửa sổ lóe rồi thoát. */
   app.quit();
+  process.exit(0);
 }
 
 if (process.platform === 'win32') {
@@ -211,6 +227,14 @@ function updateBrowserViewBounds() {
   });
 }
 
+/** Trang web (Facebook, …) ghi đè `document.title` → Electron đổi tiêu đề cửa sổ; giữ tiêu đề theo manifest. */
+function updateMainWindowTitle(profile) {
+  if (!mainWindow || !profile) return;
+  const m = getManifest(serviceRegistry, profile.platform || 'messenger');
+  const label = m?.name || 'DepLao';
+  mainWindow.setTitle(`DepLao — ${label}`);
+}
+
 function setupWebContents(contents, profile) {
   const profileId = profile.id;
 
@@ -256,6 +280,10 @@ function setupWebContents(contents, profile) {
     menu.append(new MenuItem({ label: 'Tải lại trang', click: () => contents.reload() }));
     menu.append(new MenuItem({ label: 'Quay lại', enabled: contents.canGoBack(), click: () => contents.goBack() }));
     if (menu.items.length > 0) menu.popup({ window: mainWindow });
+  });
+
+  contents.on('page-title-updated', () => {
+    updateMainWindowTitle(profile);
   });
 
   const avatarInterval = setInterval(async () => {
@@ -314,6 +342,124 @@ function setupWebContents(contents, profile) {
   }
 }
 
+function registerIpcHandlers() {
+  if (ipcBound) return;
+  ipcBound = true;
+
+  ipcMain.handle('list-services', () => {
+    serviceRegistry = loadRegistry();
+    return listServicesSorted(serviceRegistry).map((m) => ({ id: m.id, name: m.name }));
+  });
+
+  ipcMain.on('switch-profile', (event, profile) => {
+    activeProfileId = profile.id;
+    serviceRegistry = loadRegistry();
+    const platform = profile.platform || 'messenger';
+    const manifest = getManifest(serviceRegistry, platform);
+    const preloadPath = resolvePreloadPath(manifest);
+    const ua = getUserAgentForService(USER_AGENT, manifest);
+
+    if (!browserViews[profile.id]) {
+      const view = new BrowserView({
+        webPreferences: {
+          partition: profile.partition,
+          preload: preloadPath,
+          contextIsolation: true,
+          nodeIntegration: false,
+          spellcheck: true,
+        },
+      });
+      browserViews[profile.id] = view;
+      configurePartitionSession(view.webContents.session);
+      setupWebContents(view.webContents, profile);
+
+      const startUrl = getStartUrl(serviceRegistry, platform, DEFAULT_SERVICE_FALLBACK_URL);
+      view.webContents.session.setUserAgent(ua);
+      view.webContents.setUserAgent(ua);
+      view.webContents.loadURL(startUrl);
+    } else {
+      const wc = browserViews[profile.id].webContents;
+      wc.session.setUserAgent(ua);
+      wc.setUserAgent(ua);
+    }
+    mainWindow.setBrowserView(browserViews[profile.id]);
+    updateBrowserViewBounds();
+    updateMainWindowTitle(profile);
+  });
+
+  ipcMain.on('set-browserview-visibility', (event, visible) => {
+    if (!mainWindow) return;
+    if (visible && activeProfileId && browserViews[activeProfileId]) {
+      mainWindow.setBrowserView(browserViews[activeProfileId]);
+      updateBrowserViewBounds();
+    } else {
+      mainWindow.setBrowserView(null);
+    }
+  });
+
+  ipcMain.on('delete-profile', (event, id) => {
+    if (browserViews[id]) {
+      browserViews[id].webContents.destroy();
+      delete browserViews[id];
+    }
+  });
+
+  ipcMain.on('update-badge', (event, count) => {
+    if (count !== unreadCount) {
+      const hadNewMessages = count > unreadCount;
+      unreadCount = count;
+      updateBadge(unreadCount);
+      if (hadNewMessages && mainWindow && !mainWindow.isFocused()) {
+        mainWindow.flashFrame(true);
+      }
+    }
+  });
+
+  ipcMain.on('set-theme', (event, isDark) => {
+    settings.isDarkMode = isDark;
+    saveSettings(settings);
+    nativeTheme.themeSource = isDark ? 'dark' : 'light';
+  });
+
+  ipcMain.on('toggle-always-on-top', () => {
+    settings.alwaysOnTop = !settings.alwaysOnTop;
+    mainWindow.setAlwaysOnTop(settings.alwaysOnTop);
+    saveSettings(settings);
+  });
+
+  ipcMain.on('toggle-fullscreen', () => {
+    mainWindow.setFullScreen(!mainWindow.isFullScreen());
+    setTimeout(updateBrowserViewBounds, 100);
+  });
+
+  ipcMain.on('zoom-in', () => {
+    if (activeProfileId && browserViews[activeProfileId]) {
+      const wc = browserViews[activeProfileId].webContents;
+      wc.setZoomLevel(wc.getZoomLevel() + 0.5);
+    }
+  });
+
+  ipcMain.on('zoom-out', () => {
+    if (activeProfileId && browserViews[activeProfileId]) {
+      const wc = browserViews[activeProfileId].webContents;
+      wc.setZoomLevel(wc.getZoomLevel() - 0.5);
+    }
+  });
+
+  ipcMain.on('reload-page', () => {
+    if (activeProfileId && browserViews[activeProfileId]) {
+      browserViews[activeProfileId].webContents.reload();
+    }
+  });
+
+  ipcMain.on('get-settings', (event) => {
+    event.returnValue = {
+      isDarkMode: settings.isDarkMode,
+      alwaysOnTop: settings.alwaysOnTop,
+    };
+  });
+}
+
 function createWindow() {
   const { windowBounds } = settings;
 
@@ -367,119 +513,6 @@ function createWindow() {
     settings.windowBounds = mainWindow.getBounds();
     saveSettings(settings);
   });
-
-  if (!ipcBound) {
-    ipcBound = true;
-    ipcMain.handle('list-services', () => {
-      return listServicesSorted(serviceRegistry).map((m) => ({ id: m.id, name: m.name }));
-    });
-
-    ipcMain.on('switch-profile', (event, profile) => {
-      activeProfileId = profile.id;
-      const platform = profile.platform || 'messenger';
-      const manifest = getManifest(serviceRegistry, platform);
-      const preloadPath = resolvePreloadPath(manifest);
-      const ua = getUserAgentForService(USER_AGENT, manifest);
-
-      if (!browserViews[profile.id]) {
-        const view = new BrowserView({
-          webPreferences: {
-            partition: profile.partition,
-            preload: preloadPath,
-            contextIsolation: true,
-            nodeIntegration: false,
-            spellcheck: true,
-          },
-        });
-        browserViews[profile.id] = view;
-        configurePartitionSession(view.webContents.session);
-        setupWebContents(view.webContents, profile);
-
-        const startUrl = getStartUrl(serviceRegistry, platform, DEFAULT_SERVICE_FALLBACK_URL);
-        view.webContents.session.setUserAgent(ua);
-        view.webContents.setUserAgent(ua);
-        view.webContents.loadURL(startUrl);
-      } else {
-        const wc = browserViews[profile.id].webContents;
-        wc.session.setUserAgent(ua);
-        wc.setUserAgent(ua);
-      }
-      mainWindow.setBrowserView(browserViews[profile.id]);
-      updateBrowserViewBounds();
-    });
-
-    ipcMain.on('set-browserview-visibility', (event, visible) => {
-      if (!mainWindow) return;
-      if (visible && activeProfileId && browserViews[activeProfileId]) {
-        mainWindow.setBrowserView(browserViews[activeProfileId]);
-        updateBrowserViewBounds();
-      } else {
-        mainWindow.setBrowserView(null);
-      }
-    });
-
-    ipcMain.on('delete-profile', (event, id) => {
-      if (browserViews[id]) {
-        browserViews[id].webContents.destroy();
-        delete browserViews[id];
-      }
-    });
-
-    ipcMain.on('update-badge', (event, count) => {
-      if (count !== unreadCount) {
-        const hadNewMessages = count > unreadCount;
-        unreadCount = count;
-        updateBadge(unreadCount);
-        if (hadNewMessages && mainWindow && !mainWindow.isFocused()) {
-          mainWindow.flashFrame(true);
-        }
-      }
-    });
-
-    ipcMain.on('set-theme', (event, isDark) => {
-      settings.isDarkMode = isDark;
-      saveSettings(settings);
-      nativeTheme.themeSource = isDark ? 'dark' : 'light';
-    });
-
-    ipcMain.on('toggle-always-on-top', () => {
-      settings.alwaysOnTop = !settings.alwaysOnTop;
-      mainWindow.setAlwaysOnTop(settings.alwaysOnTop);
-      saveSettings(settings);
-    });
-
-    ipcMain.on('toggle-fullscreen', () => {
-      mainWindow.setFullScreen(!mainWindow.isFullScreen());
-      setTimeout(updateBrowserViewBounds, 100);
-    });
-
-    ipcMain.on('zoom-in', () => {
-      if (activeProfileId && browserViews[activeProfileId]) {
-        const wc = browserViews[activeProfileId].webContents;
-        wc.setZoomLevel(wc.getZoomLevel() + 0.5);
-      }
-    });
-
-    ipcMain.on('zoom-out', () => {
-      if (activeProfileId && browserViews[activeProfileId]) {
-        const wc = browserViews[activeProfileId].webContents;
-        wc.setZoomLevel(wc.getZoomLevel() - 0.5);
-      }
-    });
-
-    ipcMain.on('reload-page', () => {
-      if (activeProfileId && browserViews[activeProfileId]) {
-        browserViews[activeProfileId].webContents.reload();
-      }
-    });
-
-    ipcMain.on('get-settings', (event) => {
-      event.returnValue = {
-        isDarkMode: settings.isDarkMode,
-        alwaysOnTop: settings.alwaysOnTop,
-      };
-    });
-  }
 }
 
 function updateBadge(count) {
@@ -518,6 +551,7 @@ function registerGlobalShortcuts() {
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
   nativeTheme.themeSource = settings.isDarkMode ? 'dark' : 'light';
+  registerIpcHandlers();
   createWindow();
   createTray();
   registerGlobalShortcuts();

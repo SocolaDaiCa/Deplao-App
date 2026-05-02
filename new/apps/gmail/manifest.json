@@ -1,0 +1,14 @@
+{
+  "id": "gmail",
+  "name": "Gmail",
+  "startUrl": "https://mail.google.com/mail/u/0/#inbox",
+  "order": 20,
+  "trustedDomains": [
+    "google.com",
+    "googleusercontent.com",
+    "gstatic.com",
+    "googleapis.com",
+    "gmail.com",
+    "accounts.google.com"
+  ]
+}

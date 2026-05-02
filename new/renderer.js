@@ -18,20 +18,25 @@ for (const p of profiles) {
 }
 
 function fillServiceSelect() {
-  return ipcRenderer.invoke('list-services').then((services) => {
-    appSelect.innerHTML = '';
-    for (const s of services) {
-      const o = document.createElement('option');
-      o.value = s.id;
-      o.textContent = s.name;
-      appSelect.appendChild(o);
-    }
-    if (editingProfile && editingProfile.platform) {
-      appSelect.value = editingProfile.platform;
-    } else {
-      appSelect.value = DEFAULT_PLATFORM;
-    }
-  });
+  return ipcRenderer
+    .invoke('list-services')
+    .then((services) => {
+      appSelect.innerHTML = '';
+      for (const s of services) {
+        const o = document.createElement('option');
+        o.value = s.id;
+        o.textContent = s.name;
+        appSelect.appendChild(o);
+      }
+      if (editingProfile && editingProfile.platform) {
+        appSelect.value = editingProfile.platform;
+      } else {
+        appSelect.value = DEFAULT_PLATFORM;
+      }
+    })
+    .catch((err) => {
+      console.error('[DepLao] list-services:', err);
+    });
 }
 
 if (profiles.length === 0) {
@@ -113,7 +118,7 @@ const avatarImg = document.getElementById('avatar-img');
 const avatarLetter = document.getElementById('avatar-letter');
 const avatarInput = document.getElementById('avatar-input');
 
-function openModal(profileToEdit = null) {
+async function openModal(profileToEdit = null) {
   ipcRenderer.send('set-browserview-visibility', false);
   editingProfile = profileToEdit;
   tempAvatarPath = profileToEdit ? profileToEdit.avatar : null;
@@ -123,7 +128,8 @@ function openModal(profileToEdit = null) {
   document.getElementById('modal-delete').style.display = profileToEdit ? 'block' : 'none';
 
   appSelect.disabled = !!profileToEdit;
-  fillServiceSelect();
+
+  await fillServiceSelect();
 
   updateAvatarPreview();
   modalOverlay.style.display = 'flex';
