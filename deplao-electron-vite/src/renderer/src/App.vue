@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted, computed, toRaw } from 'vue'
+import { ref, watch, onMounted, onUnmounted, computed, toRaw, nextTick } from 'vue'
 import type { DeplaoApi, ProfilePayload } from './env'
 
 function getDeplao(): DeplaoApi | undefined {
@@ -247,6 +247,7 @@ function togglePin() {
 let unsubBadge: (() => void) | undefined
 let unsubAvatar: (() => void) | undefined
 let unsubFavicon: (() => void) | undefined
+let unsubFocusToast: (() => void) | undefined
 
 onMounted(async () => {
   loadProfilesFromStorage()
@@ -300,6 +301,21 @@ onMounted(async () => {
       profileFavicons.value = { ...profileFavicons.value, [id]: faviconUrl }
     })
 
+    unsubFocusToast = api.onFocusProfileFromToast(({ profileId }) => {
+      const id = String(profileId)
+      const p = profiles.value.find((x) => String(x.id) === id)
+      if (!p) return
+      void nextTick(() => {
+        if (modalOpen.value) closeModal()
+        try {
+          getDeplao()?.setBrowserviewVisibility(true)
+        } catch {
+          /* ignore */
+        }
+        switchProfile(id)
+      })
+    })
+
     api.preloadAllProfiles(profiles.value.map(profileForIpc))
   }
 
@@ -312,6 +328,7 @@ onUnmounted(() => {
   unsubBadge?.()
   unsubAvatar?.()
   unsubFavicon?.()
+  unsubFocusToast?.()
 })
 </script>
 

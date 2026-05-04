@@ -115,11 +115,11 @@ let settings = loadSettings()
 let isQuitting = false
 let unreadCount = 0
 
-/** ??m ch?a ??c theo t?ng profile (poll t? getBadgeCount) ? overlay taskbar d?ng t?ng. */
+/** Đếm chưa đọc theo từng profile (poll từ getBadgeCount) để overlay taskbar đúng tổng. */
 const profileBadgeCounts: Record<string, number> = {}
 
 const browserViews: Record<string, BrowserView> = {}
-/** Theo d?i app ?? load cho m?i phi?n ? ??i Messenger/Gmail c?n t?o l?i view / load URL. */
+/** Theo dõi app đã load cho mỗi phiên — đổi Messenger/Gmail cần tạo lại view / load URL. */
 const profileViewPlatform: Record<string, string> = {}
 let activeProfileId: string | null = null
 let ipcBound = false
@@ -138,7 +138,7 @@ function destroyBrowserViewForProfile(id: string): void {
   if (mainWindow) mainWindow.removeBrowserView(view)
   const wc = view.webContents
   if (!wc.isDestroyed()) {
-    // Gi?ng `new/main.js`: `destroy()` gi?i ph?ng view s?ch h?n `close()` cho BrowserView.
+    // Giống `new/main.js`: `destroy()` giải phóng view sạch hơn `close()` cho BrowserView.
     if (typeof wc.destroy === 'function') {
       wc.destroy()
     } else {
@@ -266,11 +266,19 @@ function buildUaDataPatchScript(): string {
 
 const UA_DATA_PATCH_SCRIPT = buildUaDataPatchScript()
 
+/**
+ * Inject vào page (main world): bọc Notification; click toast gọi `deplaoApp.reportNotificationToastClick` (preload) hoặc postMessage fallback.
+ */
+function buildNotificationClickBridgeScript(profileId: string): string {
+  const pid = JSON.stringify(profileId)
+  return `(function(){var pid=${pid};var Orig=window.Notification;if(!Orig||Orig.__deplaoWrapped)return;function onToastClick(){try{var b=window.deplaoApp;if(b&&typeof b.reportNotificationToastClick==="function")b.reportNotificationToastClick(pid);else window.postMessage({__deplao:true,channel:"notification-click",profileId:pid},"*");}catch(e){}}function Wrapped(){var n=new Orig(...arguments);try{n.addEventListener("click",onToastClick);}catch(e){}return n;}try{Object.setPrototypeOf(Wrapped,Orig);}catch(e){}Wrapped.prototype=Orig.prototype;try{Object.defineProperty(Wrapped,"permission",{configurable:true,enumerable:true,get:function(){return Orig.permission;}});}catch(e){Wrapped.permission=Orig.permission;}Wrapped.requestPermission=function(){return Orig.requestPermission.apply(Orig,arguments);};Wrapped.__deplaoWrapped=true;window.Notification=Wrapped;})();`
+}
+
 function updateTrayMenu(): void {
   if (!tray) return
   const contextMenu = Menu.buildFromTemplate([
     {
-      label: 'M? DepLao',
+      label: 'Mở DepLao',
       click: () => {
         mainWindow?.show()
         mainWindow?.focus()
@@ -278,7 +286,7 @@ function updateTrayMenu(): void {
     },
     { type: 'separator' },
     {
-      label: 'T?i l?i trang',
+      label: 'Tải lại trang',
       click: () => {
         if (activeProfileId && browserViews[activeProfileId]) {
           browserViews[activeProfileId].webContents.reload()
@@ -286,13 +294,13 @@ function updateTrayMenu(): void {
       },
     },
     {
-      label: 'Kh?i ??ng c?ng Windows',
+      label: 'Khởi động cùng Windows',
       type: 'checkbox',
       checked: settings.autoLaunch,
       click: (item) => toggleAutoLaunch(item.checked),
     },
     {
-      label: 'Thu nh? xu?ng Tray khi ??ng',
+      label: 'Thu nhỏ xuống Tray khi đóng',
       type: 'checkbox',
       checked: settings.minimizeToTray,
       click: (item) => {
@@ -302,7 +310,7 @@ function updateTrayMenu(): void {
     },
     { type: 'separator' },
     {
-      label: 'Tho?t ho?n to?n',
+      label: 'Thoát hoàn toàn',
       click: () => {
         isQuitting = true
         app.quit()
@@ -362,7 +370,20 @@ function updateMainWindowTitle(profile: { platform?: string }): void {
   if (!mainWindow || !profile) return
   const m = getManifest(serviceRegistry, profile.platform || 'messenger')
   const label = m?.name || 'DepLao'
-  mainWindow.setTitle(`DepLao ? ${label}`)
+  mainWindow.setTitle(`DepLao — ${label}`)
+}
+
+/** Attach BrowserView for profile in main (toast click, etc.). Returns false if view missing. */
+function switchMainWindowToProfileById(profileId: string): boolean {
+  if (!mainWindow || mainWindow.isDestroyed()) return false
+  const view = browserViews[profileId]
+  if (!view || view.webContents.isDestroyed()) return false
+  activeProfileId = profileId
+  mainWindow.setBrowserView(view)
+  updateBrowserViewBounds()
+  const platform = profileViewPlatform[profileId] || 'messenger'
+  updateMainWindowTitle({ platform })
+  return true
 }
 
 function ensureProfileView(profile: {
@@ -403,6 +424,9 @@ function ensureProfileView(profile: {
     patchGoogleAccountHeaders(view.webContents.session, ua)
     /** Inject UA patch BEFORE loadURL so Google scripts never see real userAgentData. */
     view.webContents.executeJavaScript(UA_DATA_PATCH_SCRIPT).catch(() => {})
+    view.webContents
+      .executeJavaScript(buildNotificationClickBridgeScript(profile.id))
+      .catch(() => {})
     view.webContents.loadURL(startUrl)
   } else {
     const wc = browserViews[profile.id].webContents
@@ -424,7 +448,7 @@ function setupWebContents(
   const manifest = getManifest(serviceRegistry, platform)
   const AppCls = loadAppClass(manifest)
 
-  /** Link `target=_blank` / `window.open` ? m? b?ng tr?nh duy?t h? th?ng, kh?ng t?o popup trong Electron. */
+  /** Link `target=_blank` / `window.open`: mở bằng trình duyệt hệ thống, không tạo popup trong Electron. */
   contents.setWindowOpenHandler(({ url }) => {
     try {
       const u = new URL(url)
@@ -446,41 +470,43 @@ function setupWebContents(
       }
       if (params.dictionarySuggestions.length > 0) menu.append(new MenuItem({ type: 'separator' }))
     }
-    if (params.selectionText) menu.append(new MenuItem({ label: 'Sao ch?p', role: 'copy' }))
+    if (params.selectionText) menu.append(new MenuItem({ label: 'Sao chép', role: 'copy' }))
     if (params.isEditable) {
-      menu.append(new MenuItem({ label: 'D?n', role: 'paste' }))
-      menu.append(new MenuItem({ label: 'C?t', role: 'cut' }))
-      menu.append(new MenuItem({ label: 'Ch?n t?t c?', role: 'selectAll' }))
+      menu.append(new MenuItem({ label: 'Dán', role: 'paste' }))
+      menu.append(new MenuItem({ label: 'Cắt', role: 'cut' }))
+      menu.append(new MenuItem({ label: 'Chọn tất cả', role: 'selectAll' }))
     }
     if (params.linkURL) {
       menu.append(new MenuItem({ type: 'separator' }))
-      menu.append(new MenuItem({ label: 'M? li?n k?t', click: () => shell.openExternal(params.linkURL) }))
+      menu.append(new MenuItem({ label: 'Mở liên kết', click: () => shell.openExternal(params.linkURL) }))
       menu.append(
         new MenuItem({
-          label: 'Sao ch?p li?n k?t',
+          label: 'Sao chép liên kết',
           click: () => clipboard.writeText(params.linkURL),
         })
       )
     }
     if (params.mediaType === 'image') {
       menu.append(new MenuItem({ type: 'separator' }))
-      menu.append(new MenuItem({ label: 'L?u ?nh', click: () => contents.downloadURL(params.srcURL) }))
+      menu.append(new MenuItem({ label: 'Lưu ảnh', click: () => contents.downloadURL(params.srcURL) }))
     }
     menu.append(new MenuItem({ type: 'separator' }))
-    menu.append(new MenuItem({ label: 'T?i l?i trang', click: () => contents.reload() }))
-    menu.append(new MenuItem({ label: 'Quay l?i', enabled: contents.canGoBack(), click: () => contents.goBack() }))
+    menu.append(new MenuItem({ label: 'Tải lại trang', click: () => contents.reload() }))
+    menu.append(new MenuItem({ label: 'Quay lại', enabled: contents.canGoBack(), click: () => contents.goBack() }))
     if (menu.items.length > 0) menu.popup({ window: mainWindow ?? undefined })
   })
 
   contents.on('will-navigate', (_event, _url) => {
     if (!contents.isDestroyed()) {
       contents.executeJavaScript(UA_DATA_PATCH_SCRIPT).catch(() => {})
+      contents.executeJavaScript(buildNotificationClickBridgeScript(profileId)).catch(() => {})
     }
   })
 
   contents.on('dom-ready', () => {
     if (!contents.isDestroyed()) {
       contents.executeJavaScript(UA_DATA_PATCH_SCRIPT).catch(() => {})
+      contents.executeJavaScript(buildNotificationClickBridgeScript(profileId)).catch(() => {})
     }
   })
 
@@ -539,6 +565,16 @@ function setupWebContents(
   }
 }
 
+/** Đưa cửa sổ chính ra trước (toast / thông báo). */
+function focusMainWindowFromNotification(): void {
+  const win = mainWindow
+  if (!win || win.isDestroyed()) return
+  if (win.isMinimized()) win.restore()
+  win.show()
+  win.focus()
+  win.flashFrame(false)
+}
+
 function registerIpcHandlers(): void {
   if (ipcBound) return
   ipcBound = true
@@ -562,7 +598,7 @@ function registerIpcHandlers(): void {
     if (!Array.isArray(profiles)) return
     for (const profile of profiles as { id: string; partition: string; platform?: string }[]) {
       if (!profile?.id || !profile.partition) {
-        console.error('[DepLao] preload-all-profiles: thi?u id/partition', profile)
+        console.error('[DepLao] preload-all-profiles: thiếu id/partition', profile)
         continue
       }
       ensureProfileView(profile)
@@ -571,7 +607,7 @@ function registerIpcHandlers(): void {
 
   ipcMain.on('switch-profile', (_event, profile: { id: string; partition: string; platform?: string }) => {
     if (!profile?.id || !profile.partition) {
-      console.error('[DepLao] switch-profile: payload kh?ng h?p l? (Vue Proxy qua IPC?)', profile)
+      console.error('[DepLao] switch-profile: payload không hợp lệ (Vue Proxy qua IPC?)', profile)
       return
     }
     activeProfileId = profile.id
@@ -579,7 +615,7 @@ function registerIpcHandlers(): void {
     if (!mainWindow) return
     const view = browserViews[profile.id]
     if (!view) {
-      console.error('[DepLao] switch-profile: kh?ng c? BrowserView sau ensureProfileView', profile.id)
+      console.error('[DepLao] switch-profile: không có BrowserView sau ensureProfileView', profile.id)
       return
     }
     mainWindow.setBrowserView(view)
@@ -599,6 +635,28 @@ function registerIpcHandlers(): void {
 
   ipcMain.on('delete-profile', (_event, id: string) => {
     destroyBrowserViewForProfile(id)
+  })
+
+  ipcMain.on('browserview-notification-click', (_event, payload: unknown) => {
+    const profileId =
+      payload && typeof payload === 'object' && 'profileId' in payload
+        ? String((payload as { profileId: unknown }).profileId)
+        : ''
+    if (!profileId) return
+    /** ASCII-only: legacy Windows consoles mangle UTF-8 in Node stdout. */
+    console.log('[DepLao] toast-click profileId=%s', profileId)
+    focusMainWindowFromNotification()
+    const switched = switchMainWindowToProfileById(profileId)
+    if (!switched) {
+      console.warn('[DepLao] toast-click: no BrowserView for profileId=%s', profileId)
+    }
+    const wc = mainWindow?.webContents
+    if (!wc || wc.isDestroyed()) return
+    const id = profileId
+    /** Defer so the window finishes showing before the renderer receives (HMR/sync sidebar). */
+    setImmediate(() => {
+      if (!wc.isDestroyed()) wc.send('focus-profile-from-toast', { profileId: id })
+    })
   })
 
   ipcMain.on('update-badge', (_event, count: number) => {
@@ -721,7 +779,7 @@ function updateBadge(count: number): void {
   if (!mainWindow) return
   const tipCount = count > 99 ? '99+' : String(count)
   if (process.platform === 'win32') {
-    /** Shell nh?n PNG 16?16; setImmediate gi?m race khi c?a s? ?n/minimize. */
+    /** Shell nhận PNG 16×16; setImmediate giảm race khi cửa sổ ẩn/minimize. */
     setImmediate(() => {
       const win = mainWindow
       if (!win || win.isDestroyed()) return
@@ -738,7 +796,7 @@ function updateBadge(count: number): void {
         if (overlay.isEmpty()) {
           win.setOverlayIcon(null, '')
         } else {
-          win.setOverlayIcon(overlay, `${tipCount} ch?a ??c`)
+          win.setOverlayIcon(overlay, `${tipCount} chưa đọc`)
         }
       } catch {
         win.setOverlayIcon(null, '')
@@ -748,7 +806,7 @@ function updateBadge(count: number): void {
     app.dock.setBadge(count > 0 ? tipCount : '')
   }
   if (tray) {
-    tray.setToolTip(count > 0 ? `DepLao ? ${tipCount} ch?a ??c` : 'DepLao')
+    tray.setToolTip(count > 0 ? `DepLao — ${tipCount} chưa đọc` : 'DepLao')
   }
 }
 

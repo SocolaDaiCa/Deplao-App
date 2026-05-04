@@ -49,4 +49,9 @@ contextBridge.exposeInMainWorld('deplao', {
     ipcRenderer.on('update-profile-favicon', listener)
     return () => ipcRenderer.removeListener('update-profile-favicon', listener)
   },
+  onFocusProfileFromToast: (cb: (payload: { profileId: string }) => void) => {
+    const listener = (_e: IpcRendererEvent, payload: { profileId: string }) => cb(payload)
+    ipcRenderer.on('focus-profile-from-toast', listener)
+    return () => ipcRenderer.removeListener('focus-profile-from-toast', listener)
+  },
 })
