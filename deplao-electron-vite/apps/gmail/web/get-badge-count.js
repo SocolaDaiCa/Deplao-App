@@ -1,14 +1,4 @@
 (function () {
-  var KEY = '__deplaoGmailUnread';
-
-  function setSticky(n) {
-    window[KEY] = n;
-  }
-
-  function getSticky() {
-    return typeof window[KEY] === 'number' ? window[KEY] : null;
-  }
-
   /** Đếm từ title khi đang ở inbox / tab có tiền tố unread. */
   function fromTitle(t) {
     if (!t) return null;
@@ -53,17 +43,8 @@
 
   var t = document.title;
   var n = fromTitle(t);
-  if (n !== null) {
-    setSticky(n);
-    return n;
-  }
+  if (n !== null) return n;
   n = fromSidebar();
-  if (n !== null) {
-    setSticky(n);
-    return n;
-  }
-  var st = getSticky();
-  return st !== null ? st : 0;
-
-  // return document.querySelector(`a[href="https://mail.google.com/mail/u/0/#inbox"]`).getAttribute('aria-label').match(/\d+/)[0] || '';
+  if (n !== null) return n;
+  return 0;
 })();
