@@ -1,4 +1,11 @@
 (function () {
+  var profileImage = document.querySelector('[aria-label="Trang cá nhân của bạn"] image');
+  if (profileImage) {
+    var profileHref = profileImage.getAttribute('xlink:href') || profileImage.getAttribute('href');
+    if (profileHref && (profileHref.indexOf('scontent') !== -1 || profileHref.indexOf('fbcdn') !== -1)) {
+      return profileHref;
+    }
+  }
   var nav = document.querySelector('div[role="navigation"]');
   if (nav) {
     var images = nav.querySelectorAll('svg image');
