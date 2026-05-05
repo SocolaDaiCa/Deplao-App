@@ -26,6 +26,7 @@ import {
   listServicesSorted,
   loadAppClass,
   setAppsRoot,
+  type AppClassType,
   type Manifest,
 } from './apps-registry'
 import { createWindowsTaskbarOverlayIcon } from './win-taskbar-badge'
