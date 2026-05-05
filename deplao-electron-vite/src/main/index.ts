@@ -152,6 +152,29 @@ function destroyBrowserViewForProfile(id: string): void {
   updateBadge(sumProfileBadgeCounts())
 }
 
+/**
+ * Trên Windows/Linux, spell checker của Chromium không tự nhận diện ngôn ngữ.
+ * Nếu không gọi `setSpellCheckerLanguages`, thường chỉ dùng một từ điển (vd. en)
+ * nên chữ Việt đúng vẫn bị gạch chân. macOS dùng spell OS — API này là no-op.
+ *
+ * Chỉ truyền mã có trong `availableSpellCheckerLanguages` (truyền sai sẽ lỗi).
+ */
+function configureSpellCheckerLanguages(session: Electron.Session): void {
+  try {
+    const available = new Set(session.availableSpellCheckerLanguages)
+    const langs: string[] = []
+    if (available.has('vi')) langs.push('vi')
+    if (available.has('en-US')) langs.push('en-US')
+    else {
+      const en = [...available].find((code) => code === 'en' || code.startsWith('en-'))
+      if (en) langs.push(en)
+    }
+    if (langs.length > 0) session.setSpellCheckerLanguages(langs)
+  } catch {
+    /* ignore */
+  }
+}
+
 function configurePartitionSession(session: Electron.Session): void {
   const allowed = new Set([
     'clipboard-read',
@@ -170,6 +193,8 @@ function configurePartitionSession(session: Electron.Session): void {
   session.setPermissionRequestHandler((_wc, permission, callback) => {
     callback(allowed.has(permission))
   })
+
+  configureSpellCheckerLanguages(session)
 
   try {
     if (typeof session.setDevicePermissionHandler === 'function') {
