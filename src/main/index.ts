@@ -780,6 +780,13 @@ function createWindow(): void {
     })
   }
 
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.type === 'keyDown' && input.control && input.key === 'w') {
+      event.preventDefault()
+      mainWindow?.minimize()
+    }
+  })
+
   mainWindow.on('focus', () => {
     mainWindow?.flashFrame(false)
   })
@@ -852,14 +859,6 @@ function registerGlobalShortcuts(): void {
     /* ignore */
   }
 
-  try {
-    globalShortcut.register('Ctrl+W', () => {
-      if (!mainWindow) return
-      mainWindow.minimize()
-    })
-  } catch {
-    /* ignore */
-  }
 }
 
 app.whenReady().then(() => {
