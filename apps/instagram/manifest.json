@@ -1,0 +1,13 @@
+{
+  "id": "instagram",
+  "name": "Instagram Direct",
+  "startUrl": "https://www.instagram.com/direct/inbox/",
+  "order": 15,
+  "trustedDomains": [
+    "instagram.com",
+    "cdninstagram.com",
+    "fbcdn.net",
+    "facebook.com",
+    "facebook.net"
+  ]
+}

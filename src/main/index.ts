@@ -851,6 +851,15 @@ function registerGlobalShortcuts(): void {
   } catch {
     /* ignore */
   }
+
+  try {
+    globalShortcut.register('Ctrl+W', () => {
+      if (!mainWindow) return
+      mainWindow.minimize()
+    })
+  } catch {
+    /* ignore */
+  }
 }
 
 app.whenReady().then(() => {
