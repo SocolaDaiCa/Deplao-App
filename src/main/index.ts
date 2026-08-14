@@ -514,6 +514,18 @@ function setupWebContents(
     }
     if (params.mediaType === 'image') {
       menu.append(new MenuItem({ type: 'separator' }))
+      menu.append(
+        new MenuItem({
+          label: 'Sao chép hình ảnh',
+          click: () => contents.copyImageAt(params.x, params.y),
+        })
+      )
+      menu.append(
+        new MenuItem({
+          label: 'Sao chép địa chỉ hình ảnh',
+          click: () => clipboard.writeText(params.srcURL),
+        })
+      )
       menu.append(new MenuItem({ label: 'Lưu ảnh', click: () => contents.downloadURL(params.srcURL) }))
     }
     menu.append(new MenuItem({ type: 'separator' }))
