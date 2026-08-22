@@ -534,7 +534,26 @@ function setupWebContents(
     if (menu.items.length > 0) menu.popup({ window: mainWindow ?? undefined })
   })
 
-  contents.on('will-navigate', (_event, _url) => {
+  contents.on('will-navigate', (event, url) => {
+    if (platform === 'messenger') {
+      const allowedPaths = [
+        'https://www.facebook.com/messages',
+        'https://www.facebook.com/login',
+        'https://www.facebook.com/checkpoint',
+        'https://www.facebook.com/recover',
+        'https://www.facebook.com/captcha',
+      ]
+      const isAllowed = allowedPaths.some((p) => url.startsWith(p))
+      if (!isAllowed) {
+        event.preventDefault()
+        try {
+          shell.openExternal(url)
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+
     if (!contents.isDestroyed()) {
       contents.executeJavaScript(UA_DATA_PATCH_SCRIPT).catch(() => {})
       contents.executeJavaScript(buildNotificationClickBridgeScript(profileId)).catch(() => {})

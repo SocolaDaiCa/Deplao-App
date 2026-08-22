@@ -2,6 +2,7 @@
   "id": "messenger",
   "name": "Messenger",
   "startUrl": "https://www.facebook.com/messages",
+  "preload": "preload.cjs",
   "order": 10,
   "trustedDomains": [
     "facebook.com",
