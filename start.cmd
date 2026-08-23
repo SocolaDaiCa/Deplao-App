@@ -31,7 +31,7 @@ if not exist "node_modules\" (
 
 echo.
 echo [3/3] Kiểm tra ứng dụng đang chạy...
-powershell -NoProfile -Command "$p = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*electron-vite*' }; if ($p) { exit 0 } else { exit 1 }" >nul 2>nul
+powershell -NoProfile -Command "$p = Get-CimInstance Win32_Process | Where-Object { $_.Name -notin @('powershell.exe', 'pwsh.exe', 'cmd.exe') -and $_.CommandLine -like '*electron-vite*' }; if ($p) { exit 0 } else { exit 1 }" >nul 2>nul
 
 if %errorlevel% equ 0 (
     echo [!] Ứng dụng đã đang chạy! Không cần khởi động thêm phiên mới.
